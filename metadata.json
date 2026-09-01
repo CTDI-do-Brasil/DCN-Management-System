@@ -1,0 +1,8 @@
+{
+  "name": "DCN Control Center",
+  "description": "Sistema corporativo de gestão e controle de ciclo completo de Document Change Notice (DCN) para Engenharia, Qualidade e Processos.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
