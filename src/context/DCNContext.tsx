@@ -63,6 +63,7 @@ interface DCNContextType {
   
   // Attachments
   addAttachment: (dcnId: string, attachment: Omit<DCNAttachment, 'id' | 'uploadedAt' | 'uploadedBy'>) => void;
+  uploadAttachmentFile: (dcnId: string, file: File, category?: DCNAttachment['category']) => Promise<DCNAttachment>;
   removeAttachment: (dcnId: string, attachmentId: string) => void;
 
   // Reset demo data
@@ -817,7 +818,54 @@ export const DCNProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }));
   };
 
-  // Add Attachment
+  // Upload Attachment File to MinIO & State
+  const uploadAttachmentFile = async (
+    dcnId: string,
+    file: File,
+    category: DCNAttachment['category'] = 'DOCUMENTO_COMPLEMENTAR'
+  ): Promise<DCNAttachment> => {
+    try {
+      const savedAttachment = await api.uploadAttachment(dcnId, file, category, currentEngineer.name);
+      setDcns(prev => prev.map(dcn => {
+        if (dcn.id !== dcnId) return dcn;
+        return {
+          ...dcn,
+          attachments: [savedAttachment, ...(dcn.attachments || [])]
+        };
+      }));
+      return savedAttachment;
+    } catch (error) {
+      console.warn('[DCNContext] Falha no upload MinIO via API, usando fallback local:', error);
+      const ext = file.name.split('.').pop()?.toLowerCase() || '';
+      let type: DCNAttachment['type'] = 'DOC';
+      if (file.type.includes('pdf') || ext === 'pdf') type = 'PDF';
+      else if (file.type.startsWith('image/') || ['png', 'jpg', 'jpeg', 'webp'].includes(ext)) type = 'IMG';
+      else if (file.type.startsWith('video/') || ['mp4', 'mov', 'webm'].includes(ext)) type = 'VIDEO';
+      else if (['xls', 'xlsx', 'csv'].includes(ext)) type = 'SPREADSHEET';
+
+      const fallbackAttachment: DCNAttachment = {
+        id: `att-${Date.now()}`,
+        name: file.name,
+        type,
+        size: `${(file.size / (1024 * 1024)).toFixed(1)} MB`,
+        category,
+        uploadedAt: new Date().toISOString().split('T')[0],
+        uploadedBy: currentEngineer.name,
+        url: URL.createObjectURL(file)
+      };
+
+      setDcns(prev => prev.map(dcn => {
+        if (dcn.id !== dcnId) return dcn;
+        return {
+          ...dcn,
+          attachments: [fallbackAttachment, ...(dcn.attachments || [])]
+        };
+      }));
+      return fallbackAttachment;
+    }
+  };
+
+  // Add Attachment (metadata)
   const addAttachment = (dcnId: string, attachmentData: Omit<DCNAttachment, 'id' | 'uploadedAt' | 'uploadedBy'>) => {
     const timestamp = new Date().toISOString().replace('T', ' ').slice(0, 16);
     const newAttachment: DCNAttachment = {
@@ -831,18 +879,19 @@ export const DCNProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       if (dcn.id !== dcnId) return dcn;
       return {
         ...dcn,
-        attachments: [newAttachment, ...dcn.attachments]
+        attachments: [newAttachment, ...(dcn.attachments || [])]
       };
     }));
   };
 
   // Remove Attachment
   const removeAttachment = (dcnId: string, attachmentId: string) => {
+    api.deleteAttachment(dcnId, attachmentId, currentEngineer.name).catch(() => {});
     setDcns(prev => prev.map(dcn => {
       if (dcn.id !== dcnId) return dcn;
       return {
         ...dcn,
-        attachments: dcn.attachments.filter(a => a.id !== attachmentId)
+        attachments: (dcn.attachments || []).filter(a => a.id !== attachmentId)
       };
     }));
   };
@@ -879,6 +928,7 @@ export const DCNProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         toggleChecklistItem,
         addChecklistItem,
         addAttachment,
+        uploadAttachmentFile,
         removeAttachment,
         resetToDefaultData
       }}

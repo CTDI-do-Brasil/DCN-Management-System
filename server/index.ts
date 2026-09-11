@@ -3,12 +3,45 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import path from 'path';
 import fs from 'fs';
+import multer from 'multer';
 import { prisma } from './db';
+import {
+  initMinio,
+  uploadFileToMinio,
+  getFileStreamFromMinio,
+  getFileStatFromMinio,
+  deleteFileFromMinio,
+  MINIO_BUCKET,
+  minioClient
+} from './minio';
 
 dotenv.config();
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3001;
+
+// Configuração do Multer para upload em memória (até 100MB para PDFs, Imagens, Vídeos)
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 100 * 1024 * 1024 }
+});
+
+function formatFileSize(bytes: number): string {
+  if (!bytes || bytes === 0) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+}
+
+function detectFileType(mime: string, filename: string): 'PDF' | 'IMG' | 'VIDEO' | 'DOC' | 'SPREADSHEET' {
+  const ext = path.extname(filename).toLowerCase();
+  if (mime.includes('pdf') || ext === '.pdf') return 'PDF';
+  if (mime.startsWith('image/') || ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg'].includes(ext)) return 'IMG';
+  if (mime.startsWith('video/') || ['.mp4', '.mov', '.avi', '.mkv', '.webm'].includes(ext)) return 'VIDEO';
+  if (['.xls', '.xlsx', '.csv'].includes(ext) || mime.includes('spreadsheet') || mime.includes('excel')) return 'SPREADSHEET';
+  return 'DOC';
+}
 
 app.use(cors());
 app.use(express.json());
@@ -17,7 +50,13 @@ app.use(express.json());
 app.get('/api/health', async (_req: Request, res: Response) => {
   try {
     await prisma.$queryRaw`SELECT 1`;
-    res.json({ status: 'ok', database: 'connected', timestamp: new Date().toISOString() });
+    let minioStatus = 'connected';
+    try {
+      await minioClient.bucketExists(MINIO_BUCKET);
+    } catch {
+      minioStatus = 'disconnected';
+    }
+    res.json({ status: 'ok', database: 'connected', minio: minioStatus, timestamp: new Date().toISOString() });
   } catch (error: any) {
     res.status(503).json({
       status: 'degraded',
@@ -399,6 +438,146 @@ app.delete('/api/technicians/:id', async (req: Request, res: Response) => {
   }
 });
 
+// ==========================================
+// Rotas de Anexos com MinIO (PDF / Imagens / Vídeos / Documentos)
+// ==========================================
+
+// Upload de anexo vinculado a uma DCN
+app.post('/api/dcns/:id/attachments', upload.single('file'), async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const file = req.file;
+
+    if (!file) {
+      return res.status(400).json({ error: 'Nenhum arquivo enviado.' });
+    }
+
+    const { category = 'DOCUMENTO_COMPLEMENTAR', uploadedBy = 'Engenharia' } = req.body;
+
+    // Verificar se a DCN existe
+    const dcn = await prisma.dCN.findUnique({ where: { id } });
+    if (!dcn) {
+      return res.status(404).json({ error: 'DCN não encontrada.' });
+    }
+
+    const fileExt = path.extname(file.originalname);
+    const sanitizedBase = path.basename(file.originalname, fileExt).replace(/[^a-zA-Z0-9_-]/g, '_');
+    const objectKey = `dcns/${id}/${Date.now()}-${sanitizedBase}${fileExt}`;
+
+    // Upload do buffer para o bucket do MinIO
+    await uploadFileToMinio(objectKey, file.buffer, file.size, file.mimetype);
+
+    // Salvar registro no banco de dados via Prisma
+    const attachment = await prisma.dCNAttachment.create({
+      data: {
+        dcnId: id,
+        name: file.originalname,
+        type: detectFileType(file.mimetype, file.originalname),
+        size: formatFileSize(file.size),
+        category: category,
+        uploadedAt: new Date().toISOString().split('T')[0],
+        uploadedBy: uploadedBy,
+        objectKey: objectKey,
+        mimeType: file.mimetype,
+        url: '' // atualizado a seguir
+      }
+    });
+
+    const updatedAttachment = await prisma.dCNAttachment.update({
+      where: { id: attachment.id },
+      data: { url: `/api/attachments/${attachment.id}/file` }
+    });
+
+    // Registrar na trilha de auditoria da DCN
+    await prisma.auditLogEntry.create({
+      data: {
+        dcnId: id,
+        timestamp: new Date().toISOString(),
+        user: uploadedBy,
+        userRole: 'Engenheiro Responsável',
+        action: 'Anexo Adicionado',
+        comment: `Arquivo "${file.originalname}" (${formatFileSize(file.size)}) enviado para o MinIO.`
+      }
+    });
+
+    res.status(201).json(updatedAttachment);
+  } catch (error: any) {
+    console.error('[Upload Anexo MinIO] Erro:', error);
+    res.status(500).json({ error: 'Falha ao processar upload do anexo no MinIO', details: error.message });
+  }
+});
+
+// Streaming / Download de anexo armazenado no MinIO
+app.get('/api/attachments/:id/file', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const attachment = await prisma.dCNAttachment.findUnique({ where: { id } });
+
+    if (!attachment || !attachment.objectKey) {
+      return res.status(404).json({ error: 'Arquivo do anexo não encontrado ou sem chave MinIO.' });
+    }
+
+    const stat = await getFileStatFromMinio(attachment.objectKey);
+    const stream = await getFileStreamFromMinio(attachment.objectKey);
+    const isDownload = req.query.download === 'true';
+
+    res.setHeader('Content-Type', attachment.mimeType || 'application/octet-stream');
+    res.setHeader('Content-Length', stat.size);
+    res.setHeader(
+      'Content-Disposition',
+      `${isDownload ? 'attachment' : 'inline'}; filename="${encodeURIComponent(attachment.name)}"`
+    );
+
+    stream.pipe(res);
+  } catch (error: any) {
+    console.error('[Download Anexo MinIO] Erro:', error);
+    res.status(500).json({ error: 'Falha ao buscar arquivo no MinIO', details: error.message });
+  }
+});
+
+// Exclusão de anexo no MinIO e no banco de dados
+app.delete('/api/dcns/:id/attachments/:attachmentId', async (req: Request, res: Response) => {
+  try {
+    const { id, attachmentId } = req.params;
+    const user = (req.query.user as string) || 'Engenharia';
+
+    const attachment = await prisma.dCNAttachment.findUnique({
+      where: { id: attachmentId }
+    });
+
+    if (!attachment) {
+      return res.status(404).json({ error: 'Anexo não encontrado.' });
+    }
+
+    // Excluir objeto do MinIO se houver chave associada
+    if (attachment.objectKey) {
+      await deleteFileFromMinio(attachment.objectKey);
+    }
+
+    // Excluir registro do Prisma
+    await prisma.dCNAttachment.delete({
+      where: { id: attachmentId }
+    });
+
+    // Auditoria
+    await prisma.auditLogEntry.create({
+      data: {
+        dcnId: id,
+        timestamp: new Date().toISOString(),
+        user: user,
+        userRole: 'Engenheiro Responsável',
+        action: 'Anexo Removido',
+        comment: `Arquivo "${attachment.name}" removido do MinIO e do sistema.`
+      }
+    });
+
+    res.json({ success: true, message: 'Anexo excluído com sucesso.' });
+  } catch (error: any) {
+    console.error('[Exclusão Anexo MinIO] Erro:', error);
+    res.status(500).json({ error: 'Falha ao remover anexo', details: error.message });
+  }
+});
+
 // 404 handler for unmatched API routes
 app.all('/api/*', (_req: Request, res: Response) => {
   res.status(404).json({ error: 'Endpoint da API não encontrado' });
@@ -415,4 +594,7 @@ if (fs.existsSync(distPath)) {
 
 app.listen(PORT, () => {
   console.log(`[DCN API Server] Running on http://localhost:${PORT}`);
+  initMinio().catch(err => {
+    console.warn(`[MinIO] Não foi possível conectar ao inicializar: ${err.message}`);
+  });
 });

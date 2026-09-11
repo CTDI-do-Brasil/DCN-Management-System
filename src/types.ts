@@ -77,12 +77,14 @@ export interface ImplementationChecklist {
 export interface DCNAttachment {
   id: string;
   name: string;
-  type: 'PDF' | 'DOC' | 'IMG' | 'SPREADSHEET';
+  type: 'PDF' | 'DOC' | 'IMG' | 'SPREADSHEET' | 'VIDEO';
   size: string;
   category: 'PDF_OFICIAL' | 'DOCUMENTO_COMPLEMENTAR' | 'FOTO_EVIDENCIA' | 'DESENHO_TECNICO' | 'REGISTRO_TREINAMENTO';
   uploadedAt: string;
   uploadedBy: string;
   url?: string;
+  objectKey?: string;
+  mimeType?: string;
 }
 
 export interface AuditLogEntry {

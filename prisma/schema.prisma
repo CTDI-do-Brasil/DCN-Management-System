@@ -155,6 +155,8 @@ model DCNAttachment {
   uploadedAt String
   uploadedBy String
   url        String?
+  objectKey  String?
+  mimeType   String?
 
   createdAt  DateTime  @default(now())
 

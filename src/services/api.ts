@@ -119,5 +119,35 @@ export const api = {
       method: 'DELETE',
     });
     return handleResponse<{ success: boolean }>(res);
+  },
+
+  // Anexos MinIO
+  async uploadAttachment(
+    dcnId: string,
+    file: File,
+    category = 'DOCUMENTO_COMPLEMENTAR',
+    uploadedBy = 'Engenharia'
+  ): Promise<DCNAttachment> {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('category', category);
+    formData.append('uploadedBy', uploadedBy);
+
+    const res = await fetch(`${API_BASE}/dcns/${dcnId}/attachments`, {
+      method: 'POST',
+      body: formData,
+    });
+    return handleResponse<DCNAttachment>(res);
+  },
+
+  async deleteAttachment(dcnId: string, attachmentId: string, user = 'Engenharia'): Promise<{ success: boolean }> {
+    const res = await fetch(`${API_BASE}/dcns/${dcnId}/attachments/${attachmentId}?user=${encodeURIComponent(user)}`, {
+      method: 'DELETE',
+    });
+    return handleResponse<{ success: boolean }>(res);
+  },
+
+  getAttachmentFileUrl(attachmentId: string, download = false): string {
+    return `${API_BASE}/attachments/${attachmentId}/file${download ? '?download=true' : ''}`;
   }
 };
