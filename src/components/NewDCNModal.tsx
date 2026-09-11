@@ -63,10 +63,11 @@ export const NewDCNModal: React.FC<NewDCNModalProps> = ({ onClose, onSuccess }) 
   const [simulatedFileName, setSimulatedFileName] = useState('');
 
   const handleAddSimulatedAttachment = () => {
-    if (!simulatedFileName) return;
-    const isImg = simulatedFileName.endsWith('.png') || simulatedFileName.endsWith('.jpg');
-    const isDoc = simulatedFileName.endsWith('.docx') || simulatedFileName.endsWith('.doc');
-    const type = isImg ? 'IMG' : isDoc ? 'DOC' : 'PDF';
+    const isVideo = ['.mp4', '.mov', '.webm', '.avi', '.mkv'].some(ext => simulatedFileName.toLowerCase().endsWith(ext));
+    const isImg = ['.png', '.jpg', '.jpeg', '.webp'].some(ext => simulatedFileName.toLowerCase().endsWith(ext));
+    const isDoc = ['.docx', '.doc', '.txt'].some(ext => simulatedFileName.toLowerCase().endsWith(ext));
+    const isSheet = ['.xls', '.xlsx', '.csv'].some(ext => simulatedFileName.toLowerCase().endsWith(ext));
+    const type = isVideo ? 'VIDEO' : isImg ? 'IMG' : isSheet ? 'SPREADSHEET' : isDoc ? 'DOC' : 'PDF';
 
     setAttachments(prev => [
       ...prev,
@@ -74,8 +75,8 @@ export const NewDCNModal: React.FC<NewDCNModalProps> = ({ onClose, onSuccess }) 
         id: `att-${Date.now()}`,
         name: simulatedFileName,
         type: type,
-        size: '1.8 MB',
-        category: 'DOCUMENTO_COMPLEMENTAR',
+        size: isVideo ? '15.4 MB' : '1.8 MB',
+        category: isVideo ? 'FOTO_EVIDENCIA' : 'DOCUMENTO_COMPLEMENTAR',
         uploadedAt: todayStr,
         uploadedBy: currentEngineer.name
       }

@@ -27,11 +27,15 @@ import {
   Users,
   UserPlus,
   UserCheck,
-  Search
+  Search,
+  Video,
+  Eye,
+  Loader2
 } from 'lucide-react';
 import { useDCN } from '../context/DCNContext';
-import { DCN, DCNStatus, MaterialItem, MaterialStatus } from '../types';
+import { DCN, DCNStatus, MaterialItem, MaterialStatus, DCNAttachment } from '../types';
 import { STATUS_CONFIG, PRIORITY_CONFIG, MATERIAL_STATUS_CONFIG, formatDate, isOverdue, getDaysRemaining } from '../utils/helpers';
+import { api } from '../services/api';
 
 interface DCNDetailModalProps {
   dcn: DCN;
@@ -50,6 +54,7 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
     toggleChecklistItem, 
     addChecklistItem, 
     addAttachment, 
+    uploadAttachmentFile,
     removeAttachment,
     currentEngineer,
     technicians,
@@ -68,9 +73,12 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
   const [newChecklistText, setNewChecklistText] = useState('');
   const [showAddChecklist, setShowAddChecklist] = useState(false);
 
-  const [newAttachmentName, setNewAttachmentName] = useState('');
-  const [newAttachmentType, setNewAttachmentType] = useState<'PDF' | 'DOC' | 'IMG' | 'SPREADSHEET'>('PDF');
-  const [newAttachmentCategory, setNewAttachmentCategory] = useState<any>('PDF_OFICIAL');
+  // Upload MinIO States
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [fileCategory, setFileCategory] = useState<DCNAttachment['category']>('DOCUMENTO_COMPLEMENTAR');
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [previewAttachment, setPreviewAttachment] = useState<DCNAttachment | null>(null);
   const [showAddAttachment, setShowAddAttachment] = useState(false);
 
   const [showTechPickerModal, setShowTechPickerModal] = useState(false);
@@ -134,20 +142,21 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
     setShowAddChecklist(false);
   };
 
-  // Handle Attachment Addition
-  const handleCreateAttachment = (e: React.FormEvent) => {
+  // Handle Attachment Upload (MinIO)
+  const handleUploadAttachment = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newAttachmentName) return;
-    addAttachment(dcn.id, {
-      name: newAttachmentName.endsWith('.pdf') || newAttachmentName.endsWith('.jpg') || newAttachmentName.endsWith('.docx') 
-        ? newAttachmentName 
-        : `${newAttachmentName}.${newAttachmentType.toLowerCase()}`,
-      type: newAttachmentType,
-      size: `${(Math.random() * 4 + 0.5).toFixed(1)} MB`,
-      category: newAttachmentCategory
-    });
-    setNewAttachmentName('');
-    setShowAddAttachment(false);
+    if (!selectedFile) return;
+    setIsUploading(true);
+    setUploadError(null);
+    try {
+      await uploadAttachmentFile(dcn.id, selectedFile, fileCategory);
+      setSelectedFile(null);
+      setShowAddAttachment(false);
+    } catch (err: any) {
+      setUploadError(err.message || 'Erro ao enviar anexo');
+    } finally {
+      setIsUploading(false);
+    }
   };
 
   return (
@@ -990,16 +999,17 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
             </div>
           )}
 
-          {/* TAB 5: ANEXOS & DOCUMENTOS */}
+          {/* TAB 5: ANEXOS & DOCUMENTOS (MINIO OBJECT STORAGE) */}
           {activeTab === 'anexos' && (
             <div className="space-y-5">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50 p-4 rounded-xl border border-slate-200">
                 <div>
-                  <h3 className="text-sm font-bold text-slate-900">
-                    Anexos e Documentos Técnicos da DCN
+                  <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                    <Paperclip className="w-4 h-4 text-indigo-600" />
+                    Anexos e Documentos Técnicos da DCN (MinIO Object Storage)
                   </h3>
                   <p className="text-xs text-slate-500">
-                    PDF oficial, desenhos técnicos (DWG/PDF), imagens de evidências 'Antes/Depois' e relatórios.
+                    Armazenamento integrado para PDF oficial, desenhos técnicos, fotos de evidências e vídeos de treinamento ou processos.
                   </p>
                 </div>
 
@@ -1008,112 +1018,175 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
                   className="inline-flex items-center px-3 py-1.5 text-xs font-semibold rounded-md text-white bg-indigo-600 hover:bg-indigo-700 shadow-xs"
                 >
                   <Upload className="w-3.5 h-3.5 mr-1" />
-                  Novo Anexo
+                  {showAddAttachment ? 'Fechar Formulário' : 'Novo Arquivo / Upload'}
                 </button>
               </div>
 
-              {/* Form Adicionar Anexo */}
+              {/* Form Adicionar Anexo (MinIO) */}
               {showAddAttachment && (
-                <form onSubmit={handleCreateAttachment} className="bg-indigo-50/40 p-4 rounded-xl border border-indigo-200 space-y-3 text-xs">
-                  <h4 className="font-bold text-indigo-900">Upload / Registro de Documento</h4>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <form onSubmit={handleUploadAttachment} className="bg-indigo-50/50 p-4 rounded-xl border border-indigo-200 space-y-3 text-xs">
+                  <h4 className="font-bold text-indigo-900 flex items-center gap-1.5">
+                    <Upload className="w-4 h-4 text-indigo-600" />
+                    Upload de Arquivo para o MinIO (PDF / Imagem / Vídeo / Planilha)
+                  </h4>
+
+                  {uploadError && (
+                    <div className="p-2.5 bg-rose-50 text-rose-700 border border-rose-200 rounded text-xs flex items-center gap-2">
+                      <AlertTriangle className="w-4 h-4 shrink-0" />
+                      <span>{uploadError}</span>
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {/* Seletor de Arquivo Real */}
                     <div>
-                      <label className="block font-semibold text-slate-700 mb-1">Nome do Arquivo</label>
+                      <label className="block font-semibold text-slate-700 mb-1">
+                        Selecione o Arquivo (PDF, Imagens, Vídeos MP4, etc.)
+                      </label>
                       <input
-                        type="text"
-                        placeholder="Ex: Desenho_Tecnico_Rev4.pdf"
-                        value={newAttachmentName}
-                        onChange={e => setNewAttachmentName(e.target.value)}
-                        className="w-full px-2.5 py-1.5 border border-slate-300 rounded bg-white"
+                        type="file"
+                        accept="application/pdf,image/*,video/*,.doc,.docx,.xls,.xlsx,.dwg,.txt"
+                        onChange={e => {
+                          if (e.target.files && e.target.files[0]) {
+                            setSelectedFile(e.target.files[0]);
+                          }
+                        }}
+                        className="w-full px-2.5 py-1.5 border border-slate-300 rounded bg-white text-slate-700 file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"
                         required
                       />
+                      {selectedFile && (
+                        <p className="text-[11px] text-slate-500 mt-1">
+                          Selecionado: <strong>{selectedFile.name}</strong> ({(selectedFile.size / (1024 * 1024)).toFixed(2)} MB)
+                        </p>
+                      )}
                     </div>
+
+                    {/* Categoria */}
                     <div>
-                      <label className="block font-semibold text-slate-700 mb-1">Tipo</label>
+                      <label className="block font-semibold text-slate-700 mb-1">Categoria do Documento</label>
                       <select
-                        value={newAttachmentType}
-                        onChange={e => setNewAttachmentType(e.target.value as any)}
-                        className="w-full px-2.5 py-1.5 border border-slate-300 rounded bg-white"
-                      >
-                        <option value="PDF">PDF (Documento Oficial)</option>
-                        <option value="IMG">Imagem / Foto (JPG/PNG)</option>
-                        <option value="DOC">Word / DOCX</option>
-                        <option value="SPREADSHEET">Planilha Excel</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block font-semibold text-slate-700 mb-1">Categoria</label>
-                      <select
-                        value={newAttachmentCategory}
-                        onChange={e => setNewAttachmentCategory(e.target.value as any)}
+                        value={fileCategory}
+                        onChange={e => setFileCategory(e.target.value as any)}
                         className="w-full px-2.5 py-1.5 border border-slate-300 rounded bg-white"
                       >
                         <option value="PDF_OFICIAL">PDF Oficial da DCN</option>
-                        <option value="DESENHO_TECNICO">Desenho Técnico</option>
-                        <option value="FOTO_EVIDENCIA">Foto de Evidência</option>
-                        <option value="DOCUMENTO_COMPLEMENTAR">Documento Complementar</option>
+                        <option value="DESENHO_TECNICO">Desenho Técnico / Diagrama</option>
+                        <option value="FOTO_EVIDENCIA">Foto ou Vídeo de Evidência</option>
+                        <option value="REGISTRO_TREINAMENTO">Registro ou Evidência de Treinamento</option>
+                        <option value="DOCUMENTO_COMPLEMENTAR">Documento Complementar / Planilha</option>
                       </select>
                     </div>
                   </div>
-                  <div className="flex justify-end space-x-2">
+
+                  <div className="flex justify-end space-x-2 pt-1">
                     <button
                       type="button"
-                      onClick={() => setShowAddAttachment(false)}
-                      className="px-3 py-1 text-xs text-slate-600 bg-white border border-slate-300 rounded hover:bg-slate-100"
+                      disabled={isUploading}
+                      onClick={() => {
+                        setShowAddAttachment(false);
+                        setSelectedFile(null);
+                        setUploadError(null);
+                      }}
+                      className="px-3 py-1.5 text-xs text-slate-600 bg-white border border-slate-300 rounded hover:bg-slate-100"
                     >
                       Cancelar
                     </button>
                     <button
                       type="submit"
-                      className="px-3 py-1 text-xs font-bold text-white bg-indigo-600 rounded hover:bg-indigo-700"
+                      disabled={isUploading || !selectedFile}
+                      className="inline-flex items-center px-4 py-1.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 rounded"
                     >
-                      Salvar Anexo
+                      {isUploading ? (
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />
+                          Enviando para o MinIO...
+                        </>
+                      ) : (
+                        <>
+                          <Upload className="w-3.5 h-3.5 mr-1.5" />
+                          Confirmar Upload
+                        </>
+                      )}
                     </button>
                   </div>
                 </form>
               )}
 
               {/* Grid de Anexos */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                {dcn.attachments.map(att => (
-                  <div 
-                    key={att.id}
-                    className="p-3 bg-white rounded-xl border border-slate-200 shadow-xs hover:border-indigo-300 transition-all flex items-start justify-between space-x-2"
-                  >
-                    <div className="flex items-start space-x-2.5 overflow-hidden">
-                      <div className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0 mt-0.5">
-                        {att.type === 'PDF' && <FileText className="w-4 h-4" />}
-                        {att.type === 'IMG' && <ImageIcon className="w-4 h-4" />}
-                        {att.type !== 'PDF' && att.type !== 'IMG' && <FileCode className="w-4 h-4" />}
+              {(!dcn.attachments || dcn.attachments.length === 0) ? (
+                <div className="p-8 text-center bg-slate-50 rounded-xl border border-dashed border-slate-200">
+                  <Paperclip className="w-8 h-8 text-slate-400 mx-auto mb-2" />
+                  <p className="text-xs font-semibold text-slate-600">Nenhum anexo enviado para esta DCN ainda.</p>
+                  <p className="text-[11px] text-slate-400 mt-0.5">Faça o upload de PDFs, fotos de evidência ou vídeos de instrução acima.</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                  {dcn.attachments.map(att => (
+                    <div 
+                      key={att.id}
+                      className="p-3 bg-white rounded-xl border border-slate-200 shadow-xs hover:border-indigo-300 transition-all flex flex-col justify-between space-y-2"
+                    >
+                      <div className="flex items-start space-x-2.5 overflow-hidden">
+                        <div className="w-9 h-9 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0 mt-0.5">
+                          {att.type === 'PDF' && <FileText className="w-5 h-5 text-rose-600" />}
+                          {att.type === 'IMG' && <ImageIcon className="w-5 h-5 text-emerald-600" />}
+                          {att.type === 'VIDEO' && <Video className="w-5 h-5 text-purple-600" />}
+                          {att.type === 'SPREADSHEET' && <FileCode className="w-5 h-5 text-teal-600" />}
+                          {att.type === 'DOC' && <FileText className="w-5 h-5 text-blue-600" />}
+                        </div>
+                        <div className="overflow-hidden min-w-0 flex-1">
+                          <p className="text-xs font-bold text-slate-900 truncate" title={att.name}>{att.name}</p>
+                          <p className="text-[10px] text-slate-400">{att.size} • {formatDate(att.uploadedAt)}</p>
+                          <div className="flex items-center gap-1.5 mt-1">
+                            <span className="inline-block text-[9px] font-semibold text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded truncate">
+                              {att.category.replace(/_/g, ' ')}
+                            </span>
+                            {att.objectKey && (
+                              <span className="inline-block text-[9px] font-semibold text-indigo-600 bg-indigo-50 px-1 py-0.5 rounded">
+                                MinIO
+                              </span>
+                            )}
+                          </div>
+                        </div>
                       </div>
-                      <div className="overflow-hidden">
-                        <p className="text-xs font-bold text-slate-900 truncate" title={att.name}>{att.name}</p>
-                        <p className="text-[10px] text-slate-400">{att.size} • {formatDate(att.uploadedAt)}</p>
-                        <span className="inline-block text-[9px] font-semibold text-slate-500 bg-slate-100 px-1.5 py-0.2 rounded mt-1">
-                          {att.category.replace('_', ' ')}
-                        </span>
-                      </div>
-                    </div>
 
-                    <div className="flex items-center space-x-1 shrink-0">
-                      <button
-                        onClick={() => alert(`Simulando visualização/download de: ${att.name}`)}
-                        className="p-1 rounded text-slate-400 hover:text-indigo-600 hover:bg-slate-100"
-                        title="Download / Visualizar"
-                      >
-                        <Download className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        onClick={() => removeAttachment(dcn.id, att.id)}
-                        className="p-1 rounded text-slate-400 hover:text-rose-600 hover:bg-slate-100"
-                        title="Remover anexo"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                      <div className="flex items-center justify-end space-x-1 pt-2 border-t border-slate-100">
+                        {/* Botão de Visualização / Player */}
+                        <button
+                          onClick={() => setPreviewAttachment(att)}
+                          className="p-1.5 rounded text-slate-500 hover:text-indigo-600 hover:bg-indigo-50"
+                          title="Visualizar / Reproduzir"
+                        >
+                          <Eye className="w-3.5 h-3.5" />
+                        </button>
+
+                        {/* Botão de Download Direto */}
+                        <a
+                          href={att.url ? `${att.url}?download=true` : api.getAttachmentFileUrl(att.id, true)}
+                          download={att.name}
+                          className="p-1.5 rounded text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 inline-flex items-center"
+                          title="Baixar Arquivo"
+                        >
+                          <Download className="w-3.5 h-3.5" />
+                        </a>
+
+                        {/* Botão de Excluir */}
+                        <button
+                          onClick={() => {
+                            if (confirm(`Deseja remover o anexo "${att.name}"?`)) {
+                              removeAttachment(dcn.id, att.id);
+                            }
+                          }}
+                          className="p-1.5 rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50"
+                          title="Remover anexo"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              )}
 
             </div>
           )}
@@ -1218,6 +1291,89 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
               >
                 Confirmar Retorno
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Pré-visualização do Arquivo (PDF / Imagem / Vídeo do MinIO) */}
+      {previewAttachment && (
+        <div className="fixed inset-0 z-70 bg-black/75 backdrop-blur-xs flex items-center justify-center p-3 animate-fade-in">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden">
+            <div className="p-4 bg-slate-900 text-white flex items-center justify-between">
+              <div className="flex items-center space-x-2 overflow-hidden">
+                {previewAttachment.type === 'VIDEO' && <Video className="w-5 h-5 text-purple-400" />}
+                {previewAttachment.type === 'IMG' && <ImageIcon className="w-5 h-5 text-emerald-400" />}
+                {previewAttachment.type === 'PDF' && <FileText className="w-5 h-5 text-rose-400" />}
+                {previewAttachment.type !== 'VIDEO' && previewAttachment.type !== 'IMG' && previewAttachment.type !== 'PDF' && (
+                  <Paperclip className="w-5 h-5 text-indigo-400" />
+                )}
+                <span className="font-bold text-sm truncate">{previewAttachment.name}</span>
+                <span className="text-xs text-slate-400">({previewAttachment.size})</span>
+              </div>
+              <div className="flex items-center space-x-2">
+                <a
+                  href={previewAttachment.url ? `${previewAttachment.url}?download=true` : api.getAttachmentFileUrl(previewAttachment.id, true)}
+                  download={previewAttachment.name}
+                  className="px-2.5 py-1 text-xs bg-slate-800 hover:bg-slate-700 text-white rounded flex items-center gap-1"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  Baixar
+                </a>
+                <button
+                  onClick={() => setPreviewAttachment(null)}
+                  className="p-1 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            <div className="p-4 flex-1 overflow-auto flex items-center justify-center bg-slate-950/5">
+              {previewAttachment.type === 'VIDEO' && (
+                <video
+                  src={previewAttachment.url || api.getAttachmentFileUrl(previewAttachment.id)}
+                  controls
+                  autoPlay
+                  className="w-full max-h-[70vh] rounded-lg shadow-lg bg-black"
+                >
+                  Seu navegador não suporta a tag de vídeo.
+                </video>
+              )}
+
+              {previewAttachment.type === 'IMG' && (
+                <img
+                  src={previewAttachment.url || api.getAttachmentFileUrl(previewAttachment.id)}
+                  alt={previewAttachment.name}
+                  className="max-h-[70vh] max-w-full rounded-lg shadow object-contain"
+                />
+              )}
+
+              {previewAttachment.type === 'PDF' && (
+                <iframe
+                  src={previewAttachment.url || api.getAttachmentFileUrl(previewAttachment.id)}
+                  title={previewAttachment.name}
+                  className="w-full h-[70vh] rounded-lg border border-slate-200 bg-white"
+                />
+              )}
+
+              {previewAttachment.type !== 'VIDEO' && previewAttachment.type !== 'IMG' && previewAttachment.type !== 'PDF' && (
+                <div className="text-center p-8 bg-white rounded-xl border border-slate-200 shadow-sm max-w-md">
+                  <FileCode className="w-12 h-12 text-indigo-600 mx-auto mb-3" />
+                  <p className="text-sm font-bold text-slate-900">{previewAttachment.name}</p>
+                  <p className="text-xs text-slate-500 mt-1 mb-4">
+                    Arquivo de dados/documento ({previewAttachment.type}). Você pode baixá-lo diretamente.
+                  </p>
+                  <a
+                    href={previewAttachment.url ? `${previewAttachment.url}?download=true` : api.getAttachmentFileUrl(previewAttachment.id, true)}
+                    download={previewAttachment.name}
+                    className="inline-flex items-center px-4 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-sm"
+                  >
+                    <Download className="w-4 h-4 mr-1.5" />
+                    Baixar Arquivo Completo
+                  </a>
+                </div>
+              )}
             </div>
           </div>
         </div>
