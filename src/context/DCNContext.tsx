@@ -3,6 +3,7 @@ import { DCN, DCNStatus, FilterOptions, MaterialItem, PriorityLevel, TrainingRec
 import { INITIAL_DCNS } from '../data/initialDCNs';
 import { INITIAL_TECHNICIANS } from '../data/initialTechnicians';
 import confetti from 'canvas-confetti';
+import { api } from '../services/api';
 
 interface DCNStats {
   receivedCount: number;
@@ -132,6 +133,33 @@ export const DCNProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   useEffect(() => {
     localStorage.setItem(TECHNICIANS_STORAGE_KEY, JSON.stringify(technicians));
   }, [technicians]);
+
+  // Carregar dados atualizados do banco PostgreSQL via API ao iniciar
+  useEffect(() => {
+    let isMounted = true;
+    async function loadDataFromDatabase() {
+      try {
+        const [remoteDCNs, remoteTechs] = await Promise.all([
+          api.getDCNs(),
+          api.getTechnicians()
+        ]);
+        if (isMounted) {
+          if (Array.isArray(remoteDCNs) && remoteDCNs.length > 0) {
+            setDcns(remoteDCNs);
+          }
+          if (Array.isArray(remoteTechs) && remoteTechs.length > 0) {
+            setTechnicians(remoteTechs);
+          }
+        }
+      } catch {
+        // Backend ou PostgreSQL ainda offline/em configuração - continua com dados locais
+      }
+    }
+    loadDataFromDatabase();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const resetFilters = () => setFilters(defaultFilters);
 
@@ -288,19 +316,29 @@ export const DCNProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       createdAt: new Date().toISOString().split('T')[0]
     };
     setTechnicians(prev => [newTech, ...prev]);
+    api.createTechnician(techData).catch(() => {});
     return newTech;
   };
 
   const updateTechnician = (id: string, updatedFields: Partial<Technician>) => {
     setTechnicians(prev => prev.map(t => t.id === id ? { ...t, ...updatedFields } : t));
+    api.updateTechnician(id, updatedFields).catch(() => {});
   };
 
   const deleteTechnician = (id: string) => {
     setTechnicians(prev => prev.filter(t => t.id !== id));
+    api.deleteTechnician(id).catch(() => {});
   };
 
   const toggleTechnicianStatus = (id: string) => {
-    setTechnicians(prev => prev.map(t => t.id === id ? { ...t, active: !t.active } : t));
+    setTechnicians(prev => prev.map(t => {
+      if (t.id === id) {
+        const nextActive = !t.active;
+        api.updateTechnician(id, { active: nextActive }).catch(() => {});
+        return { ...t, active: nextActive };
+      }
+      return t;
+    }));
   };
 
   // Associate Technicians to a DCN Training Record
@@ -445,6 +483,7 @@ export const DCNProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     };
 
     setDcns(prev => [newDCN, ...prev]);
+    api.createDCN(newDCNData).catch(() => {});
     return newDCN;
   };
 
@@ -483,6 +522,8 @@ export const DCNProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         auditTrail: newAuditTrail
       };
     }));
+
+    api.updateDCN(id, updatedFields, auditComment, currentEngineer.name, currentEngineer.role).catch(() => {});
   };
 
   // Delete DCN
@@ -491,6 +532,7 @@ export const DCNProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     if (selectedDCN?.id === id) {
       setSelectedDCN(null);
     }
+    api.deleteDCN(id).catch(() => {});
   };
 
   // Advance DCN Workflow

@@ -1,0 +1,179 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model DCN {
+  id                      String                    @id @default(uuid())
+  dcnNumber               String                    @unique
+  title                   String
+  description             String                    @db.Text
+  area                    String
+  responsible             String
+  receivedDate            String
+  dueDate                 String
+  status                  String                    @default("RECEBIDA")
+  priority                String                    @default("MEDIA")
+  
+  needsMaterial           Boolean                   @default(false)
+  materials               MaterialItem[]
+  
+  needsTraining           Boolean                   @default(false)
+  training                TrainingRecord?
+
+  implementationChecklist ImplementationChecklist[]
+  implementationDate      String?
+  implementedBy           String?
+
+  attachments             DCNAttachment[]
+  auditTrail              AuditLogEntry[]
+
+  // Avaliação Técnica da Engenharia (JSON estruturado com reviewer, technicalImpact, risksIdentified, etc.)
+  engineeringReview       Json?
+
+  closureNotes            String?                   @db.Text
+  closedAt                String?
+  closedBy                String?
+
+  createdAt               DateTime                  @default(now())
+  updatedAt               DateTime                  @updatedAt
+
+  @@map("dcns")
+}
+
+model MaterialItem {
+  id           String    @id @default(uuid())
+  dcnId        String
+  dcn          DCN       @relation(fields: [dcnId], references: [id], onDelete: Cascade)
+  code         String
+  description  String
+  quantity     Float
+  unit         String
+  supplier     String
+  expectedDate String
+  arrivalDate  String?
+  status       String    @default("PENDENTE")
+  notes        String?   @db.Text
+
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@map("materials")
+}
+
+model Technician {
+  id            String    @id @default(uuid())
+  name          String
+  badge         String    @unique
+  department    String
+  shift         String
+  role          String
+  email         String?
+  phone         String?
+  active        Boolean   @default(true)
+  skills        Json?     // Array de strings ["Leitura Esquemático", "Solda SMD", ...]
+  trainedDCNIds Json?     // Array de IDs de DCNs onde foi treinado
+  notes         String?   @db.Text
+
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  attendees     TrainingAttendee[]
+
+  @@map("technicians")
+}
+
+model TrainingRecord {
+  id              String             @id @default(uuid())
+  dcnId           String             @unique
+  dcn             DCN                @relation(fields: [dcnId], references: [id], onDelete: Cascade)
+  instructor      String
+  targetAudience  String
+  department      String
+  estimatedHours  Float              @default(1.0)
+  scheduledDate   String?
+  completionDate  String?
+  totalTrained    Int                @default(0)
+  totalPlanned    Int                @default(0)
+  status          String             @default("PENDENTE")
+  trainingTopics  Json?              // Array de tópicos
+  evidenceDoc     String?
+
+  attendeesList   TrainingAttendee[]
+
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  @@map("training_records")
+}
+
+model TrainingAttendee {
+  id           String          @id @default(uuid())
+  trainingId   String
+  training     TrainingRecord  @relation(fields: [trainingId], references: [id], onDelete: Cascade)
+  technicianId String?
+  technician   Technician?     @relation(fields: [technicianId], references: [id], onDelete: SetNull)
+  name         String
+  badge        String
+  department   String
+  signedDate   String?
+  status       String?         @default("PENDENTE")
+  score        Float?
+
+  createdAt    DateTime        @default(now())
+
+  @@map("training_attendees")
+}
+
+model ImplementationChecklist {
+  id          String    @id @default(uuid())
+  dcnId       String
+  dcn         DCN       @relation(fields: [dcnId], references: [id], onDelete: Cascade)
+  title       String
+  responsible String
+  completed   Boolean   @default(false)
+  completedAt String?
+  mandatory   Boolean   @default(true)
+
+  createdAt   DateTime  @default(now())
+
+  @@map("implementation_checklists")
+}
+
+model DCNAttachment {
+  id         String    @id @default(uuid())
+  dcnId      String
+  dcn        DCN       @relation(fields: [dcnId], references: [id], onDelete: Cascade)
+  name       String
+  type       String
+  size       String
+  category   String
+  uploadedAt String
+  uploadedBy String
+  url        String?
+
+  createdAt  DateTime  @default(now())
+
+  @@map("dcn_attachments")
+}
+
+model AuditLogEntry {
+  id         String    @id @default(uuid())
+  dcnId      String
+  dcn        DCN       @relation(fields: [dcnId], references: [id], onDelete: Cascade)
+  timestamp  String
+  user       String
+  userRole   String
+  action     String
+  fromStatus String?
+  toStatus   String?
+  comment    String?   @db.Text
+
+  createdAt  DateTime  @default(now())
+
+  @@map("audit_logs")
+}
