@@ -8,7 +8,7 @@
     "server": "tsx watch server/index.ts",
     "dev:all": "concurrently -k -n \"SERVER,CLIENT\" -c \"cyan,magenta\" \"npm run server\" \"npm run dev\"",
     "build:client": "vite build",
-    "build:server": "esbuild server/index.ts --bundle --platform=node --target=node20 --outfile=dist-server/index.cjs --packages=external",
+    "build:server": "esbuild server/index.ts --bundle --platform=node --target=node20 --outfile=dist-server/index.cjs --packages=external && esbuild prisma/seed.ts --bundle --platform=node --target=node20 --outfile=dist-server/seed.cjs --packages=external",
     "build": "npm run build:client && npm run build:server",
     "start": "node dist-server/index.cjs",
     "preview": "vite preview",

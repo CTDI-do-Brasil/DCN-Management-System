@@ -1,4 +1,4 @@
-﻿# -----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------
 # Stage 1: Build stage
 # -----------------------------------------------------------------------------
 FROM node:20-alpine AS builder
@@ -47,5 +47,5 @@ COPY --from=builder /app/dist-server ./dist-server
 
 EXPOSE 80 3000
 
-# Push Prisma schema (if DATABASE_URL is provided) and start production server
-CMD ["sh", "-c", "if [ -n \"$DATABASE_URL\" ]; then npx prisma db push --skip-generate; fi && node dist-server/index.cjs"]
+# Push Prisma schema (se DATABASE_URL estiver configurada), executa seed se RUN_SEED=true e inicia o servidor Express
+CMD ["sh", "-c", "if [ -n \"$DATABASE_URL\" ]; then npx prisma db push --skip-generate && if [ \"$RUN_SEED\" = \"true\" ]; then node dist-server/seed.cjs; fi; fi && node dist-server/index.cjs"]
