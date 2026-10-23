@@ -8,9 +8,12 @@ import {
   Bell, 
   FileCheck2,
   Layers,
-  Sparkles
+  Sparkles,
+  LogOut,
+  WifiOff
 } from 'lucide-react';
 import { useDCN } from '../context/DCNContext';
+import { useAuth } from '../context/AuthContext';
 import { exportDCNsToCSV } from '../utils/helpers';
 import { DCNLogo } from './DCNLogo';
 
@@ -26,7 +29,8 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({
   activeTab,
   onOpenNewDCN
 }) => {
-  const { filteredDCNs, currentEngineer } = useDCN();
+  const { filteredDCNs } = useDCN();
+  const { currentUser, logout, canCreateDCN, roleBadge, userInitials, isOfflineMode } = useAuth();
 
   const tabLabels: Record<string, string> = {
     dashboard: 'Início',
@@ -39,7 +43,7 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({
   };
 
   return (
-    <header className="sticky top-0 z-30 bg-white/95 backdrop-blur border-b border-slate-200 shadow-xs px-4 sm:px-6 lg:px-8 py-3">
+    <header className="sticky top-0 z-30 bg-white/95 backdrop-blur border-b border-slate-200 shadow-xs px-4 sm:px-6 lg:px-8 py-2.5">
       <div className="flex items-center justify-between">
         
         {/* Left Side: Mobile Menu Button & Breadcrumb */}
@@ -68,7 +72,7 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({
           </div>
         </div>
 
-        {/* Right Side: Quick Action Buttons & Profile */}
+        {/* Right Side: Quick Action Buttons & Authenticated User Profile */}
         <div className="flex items-center space-x-2 sm:space-x-3">
           
           {/* Quick Export CSV Button */}
@@ -81,21 +85,60 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({
             <span>CSV</span>
           </button>
 
-          {/* New DCN Button */}
-          <button
-            onClick={onOpenNewDCN}
-            className="inline-flex items-center px-3.5 py-1.5 text-xs font-bold rounded-xl text-white bg-[#00386e] hover:bg-[#002b55] shadow-xs transition-all active:scale-[0.98]"
-          >
-            <PlusCircle className="w-4 h-4 mr-1.5 text-cyan-300" />
-            <span>Nova DCN</span>
-          </button>
+          {/* New DCN Button (RBAC: Admin and Engineer only) */}
+          {canCreateDCN && (
+            <button
+              onClick={onOpenNewDCN}
+              className="inline-flex items-center px-3.5 py-1.5 text-xs font-bold rounded-xl text-white bg-[#00386e] hover:bg-[#002b55] shadow-xs transition-all active:scale-[0.98]"
+            >
+              <PlusCircle className="w-4 h-4 mr-1.5 text-cyan-300" />
+              <span>Nova DCN</span>
+            </button>
+          )}
 
-          {/* Engineer Avatar */}
-          <div className="flex items-center pl-2 sm:pl-3 border-l border-slate-200 text-left">
-            <div className="w-8 h-8 rounded-xl bg-[#00386e] text-white flex items-center justify-center text-xs font-bold ring-2 ring-cyan-400/30 shadow-xs">
-              CE
+          {/* User Information & Logout (Style OLP_WEB) */}
+          {currentUser && (
+            <div className="flex items-center pl-2 sm:pl-3 border-l border-slate-200 space-x-2.5">
+              
+              {/* User Avatar Circle */}
+              <div 
+                className="w-8 h-8 rounded-xl bg-[#00386e] text-white flex items-center justify-center text-xs font-bold ring-2 ring-cyan-400/40 shadow-xs shrink-0 select-none"
+                title={`${currentUser.nome} (${currentUser.login})`}
+              >
+                {userInitials}
+              </div>
+
+              {/* Login & Role Badge Details */}
+              <div className="hidden md:flex flex-col text-left leading-tight">
+                <div className="flex items-center space-x-1.5">
+                  <span className="text-xs font-bold text-slate-800 tracking-tight font-mono">
+                    {currentUser.login}
+                  </span>
+                  {isOfflineMode && (
+                    <span title="Operando em contingência offline" className="inline-flex items-center text-amber-600">
+                      <WifiOff className="w-3 h-3" />
+                    </span>
+                  )}
+                </div>
+                <div className="mt-0.5">
+                  <span className={`inline-block px-1.5 py-0.2 rounded text-[9px] font-extrabold uppercase border tracking-wider ${roleBadge.bg} ${roleBadge.text} ${roleBadge.border}`}>
+                    {roleBadge.label}
+                  </span>
+                </div>
+              </div>
+
+              {/* Logout Button */}
+              <button
+                onClick={logout}
+                className="p-1.5 rounded-xl text-slate-500 hover:text-rose-600 hover:bg-rose-50 border border-transparent hover:border-rose-200 transition-all cursor-pointer"
+                title="Sair do sistema (Logout)"
+                aria-label="Logout"
+              >
+                <LogOut className="w-4 h-4" />
+              </button>
+
             </div>
-          </div>
+          )}
 
         </div>
 
@@ -103,3 +146,4 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({
     </header>
   );
 };
+

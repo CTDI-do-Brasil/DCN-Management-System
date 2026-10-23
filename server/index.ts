@@ -14,8 +14,10 @@ import {
   MINIO_BUCKET,
   minioClient
 } from './minio';
+import { INITIAL_USERS } from '../src/data/initialUsers';
 
 dotenv.config();
+
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -66,6 +68,122 @@ app.get('/api/health', async (_req: Request, res: Response) => {
     });
   }
 });
+
+// ==========================================
+// Módulo de Autenticação (Estilo OLP_WEB)
+// ==========================================
+
+const USER_LOGIN_REGEX = /^[A-Z0-9\-_]+\.[A-Z0-9\-_]+$/;
+
+// POST /api/auth/login - Autenticação corporativa com fallback
+app.post('/api/auth/login', async (req: Request, res: Response) => {
+  try {
+    const { login, senha } = req.body;
+
+    if (!login || typeof login !== 'string') {
+      return res.status(400).json({ error: 'Usuário não informado.' });
+    }
+
+    const normalizedLogin = login.trim().toUpperCase();
+
+    if (!USER_LOGIN_REGEX.test(normalizedLogin)) {
+      return res.status(400).json({
+        error: 'Formato de usuário inválido! Use NOME.SOBRENOME (ex: RODRIGO.BARRETO).'
+      });
+    }
+
+    if (!senha || typeof senha !== 'string') {
+      return res.status(400).json({ error: 'Senha não informada.' });
+    }
+
+    let foundUser: any = null;
+
+    // 1. Tentar buscar no PostgreSQL
+    try {
+      if ((prisma as any).user) {
+        foundUser = await (prisma as any).user.findUnique({
+          where: { login: normalizedLogin }
+        });
+      }
+    } catch (dbError: any) {
+      console.warn('[Auth Server] Banco de dados offline/indisponível. Usando contingência:', dbError.message);
+    }
+
+    // 2. Fallback offline/seed caso banco não responda ou usuário não esteja no banco
+    if (!foundUser) {
+      foundUser = INITIAL_USERS.find(
+        u => u.login.toUpperCase() === normalizedLogin
+      );
+    }
+
+    if (!foundUser) {
+      return res.status(401).json({
+        error: `Usuário "${normalizedLogin}" não cadastrado no sistema.`
+      });
+    }
+
+    // Validação da senha
+    if (foundUser.senha !== senha) {
+      return res.status(401).json({
+        error: 'Credenciais incorretas! Verifique sua senha e tente novamente.'
+      });
+    }
+
+    const safeUser = {
+      id: foundUser.id,
+      login: foundUser.login,
+      nome: foundUser.nome,
+      role: foundUser.role,
+      createdAt: foundUser.createdAt,
+      updatedAt: foundUser.updatedAt
+    };
+
+    return res.json({
+      success: true,
+      message: 'Autenticação realizada com sucesso!',
+      user: safeUser
+    });
+  } catch (err: any) {
+    console.error('[Auth Error]', err);
+    return res.status(500).json({
+      error: 'Erro interno ao processar autenticação.',
+      details: err.message
+    });
+  }
+});
+
+// GET /api/users - Listagem de usuários (Safe)
+app.get('/api/users', async (_req: Request, res: Response) => {
+  try {
+    let usersList: any[] = [];
+    try {
+      if ((prisma as any).user) {
+        usersList = await (prisma as any).user.findMany({
+          select: {
+            id: true,
+            login: true,
+            nome: true,
+            role: true,
+            createdAt: true,
+            updatedAt: true
+          },
+          orderBy: { nome: 'asc' }
+        });
+      }
+    } catch {
+      // DB offline, use INITIAL_USERS
+    }
+
+    if (!usersList || usersList.length === 0) {
+      usersList = INITIAL_USERS.map(({ senha, ...u }) => u);
+    }
+
+    res.json(usersList);
+  } catch (error: any) {
+    res.status(500).json({ error: 'Falha ao buscar usuários', details: error.message });
+  }
+});
+
 
 // GET /api/dcns - List all DCNs with relations
 app.get('/api/dcns', async (_req: Request, res: Response) => {

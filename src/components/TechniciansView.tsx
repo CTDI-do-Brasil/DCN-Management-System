@@ -28,6 +28,7 @@ import {
   ArrowRight
 } from 'lucide-react';
 import { useDCN } from '../context/DCNContext';
+import { useAuth } from '../context/AuthContext';
 import { Technician, DCN } from '../types';
 import { formatDate } from '../utils/helpers';
 
@@ -45,6 +46,9 @@ export const TechniciansView: React.FC<TechniciansViewProps> = ({ onSelectDCN })
     toggleTechnicianStatus,
     assignTechniciansToDCN
   } = useDCN();
+
+  const { canManageTechnicians, canDeleteTechnicians, isOperator } = useAuth();
+
 
   // Search & Filter State
   const [search, setSearch] = useState('');
@@ -289,16 +293,23 @@ export const TechniciansView: React.FC<TechniciansViewProps> = ({ onSelectDCN })
             Exportar CSV
           </button>
 
-          <button
-            onClick={handleOpenNew}
-            id="btn-novo-tecnico"
-            className="inline-flex items-center px-3.5 py-2 text-xs font-bold rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white transition-colors shadow-sm"
-          >
-            <UserPlus className="w-3.5 h-3.5 mr-1.5" />
-            Cadastrar Novo Técnico
-          </button>
+          {canManageTechnicians ? (
+            <button
+              onClick={handleOpenNew}
+              id="btn-novo-tecnico"
+              className="inline-flex items-center px-3.5 py-2 text-xs font-bold rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white transition-colors shadow-sm cursor-pointer"
+            >
+              <UserPlus className="w-3.5 h-3.5 mr-1.5" />
+              Cadastrar Novo Técnico
+            </button>
+          ) : (
+            <span className="inline-flex items-center px-3 py-1.5 text-xs font-semibold rounded-lg bg-slate-100 text-slate-500 border border-slate-200">
+              Modo Leitura (Apenas Engenharia / Admin podem cadastrar)
+            </span>
+          )}
         </div>
       </div>
+
 
       {/* KPI Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
@@ -562,34 +573,49 @@ export const TechniciansView: React.FC<TechniciansViewProps> = ({ onSelectDCN })
                       <td className="py-3.5 px-4 text-right whitespace-nowrap">
                         <div className="flex items-center justify-end space-x-1.5">
                           <button
-                            onClick={() => handleOpenAssignModal(tech)}
-                            className="p-1.5 rounded-lg text-indigo-600 hover:bg-indigo-50 border border-indigo-200 transition-colors"
-                            title="Associar a Treinamento de DCN"
-                          >
-                            <Link2 className="w-3.5 h-3.5" />
-                          </button>
-
-                          <button
-                            onClick={() => handleOpenEdit(tech)}
+                            onClick={() => setViewingTech(tech)}
                             className="p-1.5 rounded-lg text-slate-600 hover:bg-slate-100 border border-slate-200 transition-colors"
-                            title="Editar Dados do Técnico"
+                            title="Visualizar Ficha Completa"
                           >
-                            <Edit className="w-3.5 h-3.5" />
+                            <Eye className="w-3.5 h-3.5" />
                           </button>
 
-                          <button
-                            onClick={() => {
-                              if (window.confirm(`Deseja realmente remover o técnico ${tech.name}?`)) {
-                                deleteTechnician(tech.id);
-                              }
-                            }}
-                            className="p-1.5 rounded-lg text-rose-600 hover:bg-rose-50 border border-rose-200 transition-colors"
-                            title="Excluir Técnico"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+                          {canManageTechnicians && (
+                            <>
+                              <button
+                                onClick={() => handleOpenAssignModal(tech)}
+                                className="p-1.5 rounded-lg text-indigo-600 hover:bg-indigo-50 border border-indigo-200 transition-colors"
+                                title="Associar a Treinamento de DCN"
+                              >
+                                <Link2 className="w-3.5 h-3.5" />
+                              </button>
+
+                              <button
+                                onClick={() => handleOpenEdit(tech)}
+                                className="p-1.5 rounded-lg text-slate-600 hover:bg-slate-100 border border-slate-200 transition-colors"
+                                title="Editar Dados do Técnico"
+                              >
+                                <Edit className="w-3.5 h-3.5" />
+                              </button>
+                            </>
+                          )}
+
+                          {canDeleteTechnicians && (
+                            <button
+                              onClick={() => {
+                                if (window.confirm(`[ADMIN] Deseja realmente remover o técnico ${tech.name}?`)) {
+                                  deleteTechnician(tech.id);
+                                }
+                              }}
+                              className="p-1.5 rounded-lg text-rose-600 hover:bg-rose-50 border border-rose-200 transition-colors"
+                              title="Excluir Técnico (Exclusivo Administrador)"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
                         </div>
                       </td>
+
                     </tr>
                   );
                 })}

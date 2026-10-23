@@ -4,8 +4,10 @@ import { INITIAL_DCNS } from '../data/initialDCNs';
 import { INITIAL_TECHNICIANS } from '../data/initialTechnicians';
 import confetti from 'canvas-confetti';
 import { api } from '../services/api';
+import { useAuth } from './AuthContext';
 
 interface DCNStats {
+
   receivedCount: number;
   inReviewCount: number;
   awaitingMaterialCount: number;
@@ -115,11 +117,16 @@ export const DCNProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [selectedDCN, setSelectedDCN] = useState<DCN | null>(null);
   const [filters, setFilters] = useState<FilterOptions>(defaultFilters);
 
+  const { currentUser } = useAuth();
+
   const currentEngineer = useMemo(() => ({
-    name: 'Eng. Carlos Eduardo Mendes',
-    role: 'Especialista em Engenharia de Processos & Qualidade',
-    email: 'carlos.mendes@dcn-enterprise.com'
-  }), []);
+    name: currentUser?.nome || 'Carlos Eduardo Mendes',
+    role: currentUser?.role === 'ADMIN' 
+      ? 'Administrador do Sistema' 
+      : (currentUser?.role === 'ENGINEER' ? 'Engenharia de Processos & Qualidade' : 'Operador de Produção'),
+    email: currentUser ? `${currentUser.login.toLowerCase()}@ctdi.com` : 'carlos.mendes@ctdi.com'
+  }), [currentUser]);
+
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(dcns));

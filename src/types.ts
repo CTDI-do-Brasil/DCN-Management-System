@@ -6,7 +6,20 @@ export type DCNStatus =
   | 'IMPLEMENTADA'
   | 'ENCERRADA';
 
+export type UserRole = 'ADMIN' | 'ENGINEER' | 'OPERATOR';
+
+export interface User {
+  id: string;
+  login: string;
+  nome: string;
+  role: UserRole;
+  senha?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 export type PriorityLevel = 'BAIXA' | 'MEDIA' | 'ALTA' | 'CRITICA';
+
 
 export type MaterialStatus = 'PENDENTE' | 'PEDIDO_EMITIDO' | 'EM_TRANSITO' | 'RECEBIDO_ESTOQUE' | 'INSPECIONADO_APROVADO';
 

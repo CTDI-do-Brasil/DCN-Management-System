@@ -179,3 +179,16 @@ model AuditLogEntry {
 
   @@map("audit_logs")
 }
+
+model User {
+  id        String   @id @default(uuid())
+  login     String   @unique
+  nome      String
+  role      String   @default("OPERATOR") // ADMIN, ENGINEER, OPERATOR
+  senha     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("users")
+}
+

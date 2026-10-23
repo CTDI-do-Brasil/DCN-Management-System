@@ -1,4 +1,5 @@
-import { DCN, Technician, MaterialItem, TrainingRecord, DCNAttachment, ImplementationChecklist } from '../types';
+import { DCN, Technician, MaterialItem, TrainingRecord, DCNAttachment, ImplementationChecklist, User } from '../types';
+import { INITIAL_USERS } from '../data/initialUsers';
 
 const API_BASE = '/api';
 
@@ -11,7 +12,73 @@ async function handleResponse<T>(res: Response): Promise<T> {
 }
 
 export const api = {
+  // Auth & Session
+  async login(login: string, senha: string): Promise<{ success: boolean; user: User; message: string; isOffline?: boolean }> {
+    try {
+      const res = await fetch(`${API_BASE}/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ login, senha }),
+      });
+
+      if (!res.ok) {
+        let errorMsg = `Erro na autenticação (${res.status})`;
+        try {
+          const errData = await res.json();
+          if (errData?.error) errorMsg = errData.error;
+        } catch {
+          // Ignore
+        }
+        if (res.status === 400 || res.status === 401) {
+          throw new Error(errorMsg);
+        }
+        throw new Error(errorMsg);
+      }
+
+      return await res.json();
+    } catch (networkOrServerError: any) {
+      if (
+        networkOrServerError.message?.includes('Formato de usuário') ||
+        networkOrServerError.message?.includes('Credenciais incorretas') ||
+        networkOrServerError.message?.includes('não cadastrado')
+      ) {
+        throw networkOrServerError;
+      }
+
+      // Fallback offline / contingência se o servidor estiver indisponível
+      console.warn('[Auth API] Servidor indisponível. Acionando validação offline:', networkOrServerError.message);
+      const normalized = (login || '').trim().toUpperCase();
+      const offlineUser = INITIAL_USERS.find(u => u.login.toUpperCase() === normalized);
+
+      if (!offlineUser) {
+        throw new Error(`[Contingência Offline] Usuário "${normalized}" não encontrado no cache do sistema.`);
+      }
+
+      if (offlineUser.senha !== senha) {
+        throw new Error('Credenciais incorretas! Verifique sua senha e tente novamente.');
+      }
+
+      const { senha: _, ...safeUser } = offlineUser;
+      return {
+        success: true,
+        user: safeUser,
+        message: 'Autenticado com sucesso em modo de contingência offline.',
+        isOffline: true
+      };
+    }
+  },
+
+  async getUsers(): Promise<User[]> {
+    try {
+      const res = await fetch(`${API_BASE}/users`);
+      return handleResponse<User[]>(res);
+    } catch {
+      return INITIAL_USERS.map(({ senha: _, ...u }) => u);
+    }
+  },
+
   async checkHealth(): Promise<{ status: string; database: string }> {
+
     const res = await fetch(`${API_BASE}/health`);
     return handleResponse(res);
   },

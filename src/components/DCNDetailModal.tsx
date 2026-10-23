@@ -33,6 +33,7 @@ import {
   Loader2
 } from 'lucide-react';
 import { useDCN } from '../context/DCNContext';
+import { useAuth } from '../context/AuthContext';
 import { DCN, DCNStatus, MaterialItem, MaterialStatus, DCNAttachment } from '../types';
 import { STATUS_CONFIG, PRIORITY_CONFIG, MATERIAL_STATUS_CONFIG, formatDate, isOverdue, getDaysRemaining } from '../utils/helpers';
 import { api } from '../services/api';
@@ -47,6 +48,7 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
   const { 
     advanceDCNStatus, 
     revertDCNStatus, 
+    deleteDCN,
     updateMaterialStatus, 
     addMaterialItem, 
     updateTrainingDetails, 
@@ -62,6 +64,9 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
     removeTechnicianFromDCN,
     signTechnicianTraining
   } = useDCN();
+
+  const { canDeleteDCN, canEditDCN, canAccessAudit, isOperator, isAdmin } = useAuth();
+
 
   const [activeTab, setActiveTab] = useState<'geral' | 'materiais' | 'treinamento' | 'implementacao' | 'anexos' | 'auditoria'>('geral');
   const [newMaterialCode, setNewMaterialCode] = useState('');
@@ -189,14 +194,33 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
           </div>
 
           <div className="flex items-center space-x-2 self-end sm:self-start">
-            <button
-              onClick={() => onOpenAuditReport(dcn.id)}
-              className="inline-flex items-center px-3 py-1.5 text-xs font-semibold rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-colors shadow-xs"
-              title="Gerar Dossiê de Auditoria"
-            >
-              <Printer className="w-3.5 h-3.5 mr-1.5 text-indigo-400" />
-              Imprimir Dossiê
-            </button>
+            {canAccessAudit && (
+              <button
+                onClick={() => onOpenAuditReport(dcn.id)}
+                className="inline-flex items-center px-3 py-1.5 text-xs font-semibold rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-colors shadow-xs"
+                title="Gerar Dossiê de Auditoria"
+              >
+                <Printer className="w-3.5 h-3.5 mr-1.5 text-indigo-400" />
+                Imprimir Dossiê
+              </button>
+            )}
+
+            {/* Ação Crítica RBAC: Exclusão restrita estritamente a ADMIN */}
+            {canDeleteDCN && (
+              <button
+                onClick={() => {
+                  if (window.confirm(`[ADMIN] Deseja realmente excluir permanentemente a DCN ${dcn.dcnNumber}?\nEsta ação apagará todos os materiais, treinamentos e checklists associados.`)) {
+                    deleteDCN(dcn.id);
+                    onClose();
+                  }
+                }}
+                className="inline-flex items-center px-3 py-1.5 text-xs font-semibold rounded-lg bg-rose-900/60 hover:bg-rose-800 text-rose-200 border border-rose-700/80 transition-colors shadow-xs"
+                title="Excluir DCN (Exclusivo Administrador)"
+              >
+                <Trash2 className="w-3.5 h-3.5 mr-1.5 text-rose-300" />
+                Excluir DCN
+              </button>
+            )}
 
             <button
               onClick={onClose}
@@ -257,24 +281,32 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
           </div>
 
           <div className="flex items-center space-x-2">
-            {dcn.status !== 'RECEBIDA' && (
-              <button
-                onClick={() => setRevertModalOpen(true)}
-                className="px-3 py-1 text-xs font-medium rounded-md text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 border border-slate-300 transition-colors flex items-center"
-              >
-                <ArrowLeft className="w-3.5 h-3.5 mr-1" />
-                Retornar Etapa
-              </button>
-            )}
+            {canEditDCN ? (
+              <>
+                {dcn.status !== 'RECEBIDA' && (
+                  <button
+                    onClick={() => setRevertModalOpen(true)}
+                    className="px-3 py-1 text-xs font-medium rounded-md text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 border border-slate-300 transition-colors flex items-center"
+                  >
+                    <ArrowLeft className="w-3.5 h-3.5 mr-1" />
+                    Retornar Etapa
+                  </button>
+                )}
 
-            {dcn.status !== 'ENCERRADA' && (
-              <button
-                onClick={() => advanceDCNStatus(dcn.id)}
-                className="px-4 py-1 text-xs font-bold rounded-md text-white bg-indigo-600 hover:bg-indigo-700 shadow-sm transition-colors flex items-center"
-              >
-                <span>Avançar para Próxima Etapa</span>
-                <ArrowRight className="w-4 h-4 ml-1.5" />
-              </button>
+                {dcn.status !== 'ENCERRADA' && (
+                  <button
+                    onClick={() => advanceDCNStatus(dcn.id)}
+                    className="px-4 py-1 text-xs font-bold rounded-md text-white bg-indigo-600 hover:bg-indigo-700 shadow-sm transition-colors flex items-center"
+                  >
+                    <span>Avançar para Próxima Etapa</span>
+                    <ArrowRight className="w-4 h-4 ml-1.5" />
+                  </button>
+                )}
+              </>
+            ) : (
+              <span className="inline-flex items-center text-xs font-medium text-slate-500 bg-slate-100 border border-slate-200 px-2.5 py-1 rounded-md">
+                Modo Consulta (Apenas Engenharia / Admin podem avançar status)
+              </span>
             )}
 
             {dcn.status === 'ENCERRADA' && (
@@ -285,6 +317,7 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
             )}
           </div>
         </div>
+
 
         {/* ----------------------------------------------------
             TAB NAVIGATION BAR

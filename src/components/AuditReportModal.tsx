@@ -15,6 +15,7 @@ import {
   AlertCircle 
 } from 'lucide-react';
 import { useDCN } from '../context/DCNContext';
+import { useAuth } from '../context/AuthContext';
 import { formatDate, STATUS_CONFIG, PRIORITY_CONFIG } from '../utils/helpers';
 
 interface AuditReportModalProps {
@@ -24,6 +25,7 @@ interface AuditReportModalProps {
 
 export const AuditReportModal: React.FC<AuditReportModalProps> = ({ initialDCNId, onClose }) => {
   const { dcns, currentEngineer } = useDCN();
+  const { canAccessAudit } = useAuth();
   const [selectedId, setSelectedId] = useState<string>(initialDCNId || (dcns[0]?.id || ''));
 
   const dcn = dcns.find(d => d.id === selectedId) || dcns[0];
@@ -32,12 +34,33 @@ export const AuditReportModal: React.FC<AuditReportModalProps> = ({ initialDCNId
     window.print();
   };
 
+  if (!canAccessAudit) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-xs">
+        <div className="bg-white rounded-2xl p-6 max-w-md w-full text-center shadow-xl border border-slate-200">
+          <AlertCircle className="w-12 h-12 text-rose-500 mx-auto mb-3" />
+          <h3 className="text-base font-bold text-slate-900">Acesso Restrito</h3>
+          <p className="text-xs text-slate-600 mt-1 mb-4 leading-relaxed">
+            A emissão do Dossiê Formal de Auditoria (ISO 9001 / IATF 16949) é restrita a usuários com perfil de Engenharia ou Administrador.
+          </p>
+          <button
+            onClick={onClose}
+            className="px-4 py-2 bg-[#00386e] text-white text-xs font-bold rounded-xl cursor-pointer"
+          >
+            Fechar
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   if (!dcn) return null;
 
   const statusConfig = STATUS_CONFIG[dcn.status];
   const priorityConfig = PRIORITY_CONFIG[dcn.priority];
 
   return (
+
     <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 animate-fade-in print:p-0 print:bg-white print:static">
       <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-4xl max-h-[94vh] flex flex-col overflow-hidden print:max-h-none print:shadow-none print:border-none print:rounded-none">
         

@@ -1,11 +1,33 @@
 import { PrismaClient } from '@prisma/client';
 import { INITIAL_TECHNICIANS } from '../src/data/initialTechnicians';
 import { INITIAL_DCNS } from '../src/data/initialDCNs';
+import { INITIAL_USERS } from '../src/data/initialUsers';
 
 const prisma = new PrismaClient();
 
 async function main() {
   console.log('--- Iniciando Carga Inicial no PostgreSQL (Seed) ---');
+
+  // 0. Inserir Usuários (Autenticação Corporativa)
+  console.log(`Cadastrando ${INITIAL_USERS.length} usuários corporativos...`);
+  for (const user of INITIAL_USERS) {
+    await (prisma as any).user.upsert({
+      where: { login: user.login },
+      update: {
+        nome: user.nome,
+        role: user.role,
+        senha: user.senha
+      },
+      create: {
+        id: user.id,
+        login: user.login,
+        nome: user.nome,
+        role: user.role,
+        senha: user.senha
+      }
+    });
+  }
+  console.log('✓ Usuários cadastrados com sucesso.');
 
   // 1. Inserir Técnicos
   console.log(`Cadastrando ${INITIAL_TECHNICIANS.length} técnicos...`);

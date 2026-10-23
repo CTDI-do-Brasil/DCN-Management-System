@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { AuthProvider, useAuth } from './context/AuthContext';
 import { DCNProvider, useDCN } from './context/DCNContext';
 import { Sidebar, AppNavTab } from './components/Sidebar';
 import { TopNavbar } from './components/TopNavbar';
@@ -11,10 +12,13 @@ import { MaterialsOverview } from './components/MaterialsOverview';
 import { TrainingMatrix } from './components/TrainingMatrix';
 import { TechniciansView } from './components/TechniciansView';
 import { SearchExportView } from './components/SearchExportView';
+import { LoginModal } from './components/LoginModal';
 
 function AppContent() {
   const { dcns, selectedDCN, setSelectedDCN, setFilters } = useDCN();
+  const { isAuthenticated, canAccessAudit, canCreateDCN } = useAuth();
   const [activeTab, setActiveTab] = useState<AppNavTab>('dashboard');
+
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isNewDCNModalOpen, setIsNewDCNModalOpen] = useState(false);
   const [isAuditReportOpen, setIsAuditReportOpen] = useState(false);
@@ -190,14 +194,20 @@ function AppContent() {
         />
       )}
 
+      {/* Modal de Login Corporativo com Overlay (Estilo OLP_WEB) */}
+      <LoginModal />
+
     </div>
   );
 }
 
 export default function App() {
   return (
-    <DCNProvider>
-      <AppContent />
-    </DCNProvider>
+    <AuthProvider>
+      <DCNProvider>
+        <AppContent />
+      </DCNProvider>
+    </AuthProvider>
   );
 }
+

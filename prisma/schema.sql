@@ -184,3 +184,18 @@ BEGIN
         ALTER TABLE "audit_logs" ADD CONSTRAINT "audit_logs_dcnId_fkey" FOREIGN KEY ("dcnId") REFERENCES "dcns"("id") ON DELETE CASCADE ON UPDATE CASCADE;
     END IF;
 END $$;
+
+-- Tabela de Usuários do Sistema (Autenticação Corporativa)
+CREATE TABLE IF NOT EXISTS "users" (
+    "id" TEXT NOT NULL,
+    "login" TEXT NOT NULL,
+    "nome" TEXT NOT NULL,
+    "role" TEXT NOT NULL DEFAULT 'OPERATOR',
+    "senha" TEXT NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "users_pkey" PRIMARY KEY ("id")
+);
+CREATE UNIQUE INDEX IF NOT EXISTS "users_login_key" ON "users"("login");
+

@@ -15,9 +15,12 @@ import {
   Layers,
   ChevronRight,
   Sparkles,
-  Users
+  Users,
+  LogOut,
+  Lock
 } from 'lucide-react';
 import { useDCN } from '../context/DCNContext';
+import { useAuth } from '../context/AuthContext';
 import { exportDCNsToCSV } from '../utils/helpers';
 import { DCNLogo } from './DCNLogo';
 import { CTDILogo } from './CTDILogo';
@@ -41,7 +44,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
   isOpenMobile,
   onCloseMobile
 }) => {
-  const { dcns, filteredDCNs, stats, currentEngineer, resetToDefaultData, technicians } = useDCN();
+  const { dcns, filteredDCNs, stats, resetToDefaultData, technicians } = useDCN();
+  const { currentUser, logout, canCreateDCN, roleBadge, userInitials, isOperator } = useAuth();
+
 
   const navItems = [
     {
@@ -184,53 +189,69 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </nav>
           </div>
 
-          {/* Quick Primary Actions in Sidebar */}
-          <div className="pt-2 border-t border-[#004e8f]/50 space-y-2">
-            <div className="px-3 mb-1">
-              <span className="text-[10px] font-extrabold tracking-widest text-cyan-300 uppercase">
-                AÇÕES RÁPIDAS
-              </span>
-            </div>
+          {/* Quick Primary Actions in Sidebar (RBAC: Admin e Engenharia) */}
+          {canCreateDCN && (
+            <div className="pt-2 border-t border-[#004e8f]/50 space-y-2">
+              <div className="px-3 mb-1">
+                <span className="text-[10px] font-extrabold tracking-widest text-cyan-300 uppercase">
+                  AÇÕES RÁPIDAS
+                </span>
+              </div>
 
-            <button
-              onClick={() => {
-                onOpenNewDCN();
-                onCloseMobile();
-              }}
-              className="w-full flex items-center justify-center space-x-2 px-3 py-2.5 bg-[#00a8e8] hover:bg-[#0095d1] text-white font-bold text-xs rounded-xl shadow-md transition-all active:scale-[0.98]"
-            >
-              <PlusCircle className="w-4 h-4" />
-              <span>Nova DCN</span>
-            </button>
-          </div>
+              <button
+                onClick={() => {
+                  onOpenNewDCN();
+                  onCloseMobile();
+                }}
+                className="w-full flex items-center justify-center space-x-2 px-3 py-2.5 bg-[#00a8e8] hover:bg-[#0095d1] text-white font-bold text-xs rounded-xl shadow-md transition-all active:scale-[0.98] cursor-pointer"
+              >
+                <PlusCircle className="w-4 h-4" />
+                <span>Nova DCN</span>
+              </button>
+            </div>
+          )}
 
         </div>
 
-        {/* Footer / User Profile in Sidebar */}
+        {/* Footer / User Profile in Sidebar (Estilo Corporativo CTDI) */}
         <div className="p-3 bg-[#00284f] border-t border-[#004077] space-y-2">
           <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-2.5">
-              <div className="w-8 h-8 rounded-lg bg-[#005a9c] flex items-center justify-center text-white text-xs font-bold ring-1 ring-cyan-400/40">
-                CE
+            <div className="flex items-center space-x-2.5 min-w-0">
+              <div className="w-8 h-8 rounded-lg bg-[#005a9c] flex items-center justify-center text-white text-xs font-bold ring-1 ring-cyan-400/40 shrink-0">
+                {userInitials}
               </div>
-              <div className="text-left">
-                <p className="text-xs font-bold text-white leading-tight truncate w-32">
-                  {currentEngineer.name}
+              <div className="text-left min-w-0">
+                <p className="text-xs font-bold text-white leading-tight truncate max-w-[110px]" title={currentUser?.nome || 'Usuário'}>
+                  {currentUser?.nome || 'Usuário'}
                 </p>
-                <div className="flex items-center space-x-1 mt-0.5">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-                  <p className="text-[10px] text-cyan-200">Eng. de Processos</p>
+                <div className="flex items-center space-x-1.5 mt-0.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0 animate-pulse"></span>
+                  <p className="text-[10px] text-cyan-200 font-medium truncate max-w-[100px]">
+                    {roleBadge.label}
+                  </p>
                 </div>
               </div>
             </div>
 
-            <button
-              onClick={resetToDefaultData}
-              title="Restaurar dados de teste"
-              className="p-1.5 text-slate-400 hover:text-white hover:bg-[#003d73] rounded-lg transition-colors"
-            >
-              <RotateCcw className="w-3.5 h-3.5" />
-            </button>
+            <div className="flex items-center space-x-1">
+              {/* Botão de Logout */}
+              <button
+                onClick={logout}
+                title="Sair do sistema (Logout)"
+                className="p-1.5 text-slate-300 hover:text-rose-400 hover:bg-[#003d73] rounded-lg transition-colors cursor-pointer"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+              </button>
+
+              {/* Botão de restaurar dados de teste */}
+              <button
+                onClick={resetToDefaultData}
+                title="Restaurar dados de demonstração"
+                className="p-1.5 text-slate-400 hover:text-white hover:bg-[#003d73] rounded-lg transition-colors cursor-pointer"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+              </button>
+            </div>
           </div>
         </div>
 
