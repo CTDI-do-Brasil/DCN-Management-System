@@ -123,12 +123,11 @@ export const DCNProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
             .filter(
               (t: Technician) =>
                 !LEGACY_DEMO_TECH_IDS.includes(t.id) &&
-                !LEGACY_DEMO_TECH_BADGES.includes(t.badge)
+                !LEGACY_DEMO_TECH_BADGES.includes(t.badge || '')
             )
             .map((t: Technician) => ({
               ...t,
-              department: t.department === 'Montagem SMT' ? 'Produção' : t.department,
-              shift: (t.shift as string) === 'Comercial' ? 'Administrativo' : t.shift
+              department: t.department === 'Montagem SMT' ? 'Produção' : t.department
             }));
         }
       }
@@ -187,7 +186,7 @@ export const DCNProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           }
           if (Array.isArray(remoteTechs)) {
             const cleanTechs = remoteTechs.filter(
-              t => !LEGACY_DEMO_TECH_IDS.includes(t.id) && !LEGACY_DEMO_TECH_BADGES.includes(t.badge)
+              t => !LEGACY_DEMO_TECH_IDS.includes(t.id) && !LEGACY_DEMO_TECH_BADGES.includes(t.badge || '')
             );
             setTechnicians(cleanTechs);
           }
@@ -394,7 +393,9 @@ export const DCNProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       const newAttendees: TrainingAttendee[] = [...currentAttendees];
 
       selectedTechs.forEach(tech => {
-        const alreadyIn = newAttendees.some(a => a.badge === tech.badge || a.technicianId === tech.id);
+        const alreadyIn = newAttendees.some(
+          a => a.technicianId === tech.id || a.name === tech.name || (tech.badge && a.badge === tech.badge)
+        );
         if (!alreadyIn) {
           newAttendees.push({
             technicianId: tech.id,
@@ -438,7 +439,7 @@ export const DCNProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       if (dcn.id !== dcnId || !dcn.training) return dcn;
 
       const filteredAttendees = (dcn.training.attendeesList || []).filter(
-        a => a.badge !== badgeOrId && a.technicianId !== badgeOrId
+        a => a.badge !== badgeOrId && a.technicianId !== badgeOrId && a.name !== badgeOrId
       );
 
       return {
@@ -462,7 +463,7 @@ export const DCNProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       if (dcn.id !== dcnId || !dcn.training) return dcn;
 
       const updatedAttendees = (dcn.training.attendeesList || []).map(a => {
-        if (a.badge === badgeOrId || a.technicianId === badgeOrId) {
+        if (a.badge === badgeOrId || a.technicianId === badgeOrId || a.name === badgeOrId) {
           return {
             ...a,
             status: 'CONCLUIDO' as const,
@@ -488,7 +489,7 @@ export const DCNProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const targetDCN = dcns.find(d => d.id === dcnId);
     if (targetDCN) {
       setTechnicians(prev => prev.map(t => {
-        if (t.id === badgeOrId || t.badge === badgeOrId) {
+        if (t.id === badgeOrId || (t.badge && t.badge === badgeOrId) || t.name === badgeOrId) {
           const currentTrained = t.trainedDCNIds || [];
           if (!currentTrained.includes(targetDCN.id)) {
             return {
@@ -794,7 +795,9 @@ export const DCNProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
     // 2. Synchronize all associated technicians
     setTechnicians(prev => prev.map(t => {
-      const isAttendee = updatedAttendees.some(a => a.badge === t.badge || a.technicianId === t.id);
+      const isAttendee = updatedAttendees.some(
+        a => a.technicianId === t.id || a.name === t.name || (t.badge && a.badge === t.badge)
+      );
       if (isAttendee) {
         const trained = t.trainedDCNIds || [];
         if (!trained.includes(dcnId)) {

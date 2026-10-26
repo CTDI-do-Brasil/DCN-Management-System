@@ -68,9 +68,9 @@ model MaterialItem {
 model Technician {
   id            String    @id @default(uuid())
   name          String
-  badge         String    @unique
+  badge         String?   @unique
   department    String
-  shift         String
+  shift         String?
   role          String
   email         String?
   phone         String?
@@ -118,7 +118,7 @@ model TrainingAttendee {
   technicianId String?
   technician   Technician?     @relation(fields: [technicianId], references: [id], onDelete: SetNull)
   name         String
-  badge        String
+  badge        String?
   department   String
   signedDate   String?
   status       String?         @default("PENDENTE")

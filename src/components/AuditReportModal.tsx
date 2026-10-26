@@ -246,7 +246,7 @@ export const AuditReportModal: React.FC<AuditReportModalProps> = ({ initialDCNId
                     <div className="flex flex-wrap gap-2 text-[10px]">
                       {dcn.training.attendeesList.map((att, i) => (
                         <span key={i} className="px-2 py-0.5 bg-slate-100 border border-slate-300 rounded font-mono">
-                          {att.name} ({att.badge}) - OK
+                          {att.name} - OK
                         </span>
                       ))}
                     </div>

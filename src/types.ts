@@ -36,14 +36,14 @@ export interface MaterialItem {
   notes?: string;
 }
 
-export type ShiftType = '1º Turno' | '2º Turno' | '3º Turno' | 'Administrativo' | 'Comercial';
+export type ShiftType = '1º Turno' | '2º Turno' | '3º Turno' | 'Administrativo' | 'Comercial' | '';
 
 export interface Technician {
   id: string;
   name: string;
-  badge: string;
+  badge?: string;
   department: string;
-  shift: ShiftType;
+  shift?: ShiftType;
   role: string;
 
   email?: string;
@@ -58,7 +58,7 @@ export interface Technician {
 export interface TrainingAttendee {
   technicianId?: string;
   name: string;
-  badge: string;
+  badge?: string;
   department: string;
   signedDate?: string;
   status?: 'CONCLUIDO' | 'PENDENTE' | 'JUSTIFICADO';

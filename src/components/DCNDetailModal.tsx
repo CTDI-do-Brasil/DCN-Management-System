@@ -757,9 +757,6 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
                               <div className="space-y-0.5">
                                 <div className="flex items-center space-x-1.5">
                                   <p className="font-bold text-slate-900">{att.name}</p>
-                                  <span className="font-mono text-[10px] text-indigo-700 bg-indigo-50 px-1.5 py-0.2 rounded border border-indigo-100">
-                                    {att.badge}
-                                  </span>
                                 </div>
                                 <p className="text-[10px] text-slate-500">{att.department}</p>
                               </div>
@@ -772,7 +769,7 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
                                   </span>
                                 ) : (
                                   <button
-                                    onClick={() => signTechnicianTraining(dcn.id, att.badge)}
+                                    onClick={() => signTechnicianTraining(dcn.id, att.technicianId || att.badge || att.name)}
                                     className="px-2 py-0.5 text-[10px] font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded shadow-xs"
                                   >
                                     Assinar
@@ -780,7 +777,7 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
                                 )}
 
                                 <button
-                                  onClick={() => removeTechnicianFromDCN(dcn.id, att.badge)}
+                                  onClick={() => removeTechnicianFromDCN(dcn.id, att.technicianId || att.badge || att.name)}
                                   className="p-1 text-slate-400 hover:text-rose-600 rounded"
                                   title="Remover participante"
                                 >
@@ -862,11 +859,13 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
                     <div className="max-h-56 overflow-y-auto space-y-1.5 border border-slate-200 rounded-lg p-2 bg-slate-50">
                       {technicians
                         .filter(t => {
-                          const alreadyIn = dcn.training?.attendeesList?.some(a => a.badge === t.badge || a.technicianId === t.id);
+                          const alreadyIn = dcn.training?.attendeesList?.some(
+                            a => a.technicianId === t.id || a.name === t.name || (t.badge && a.badge === t.badge)
+                          );
                           if (alreadyIn) return false;
                           if (techSearch) {
                             const q = techSearch.toLowerCase();
-                            if (!t.name.toLowerCase().includes(q) && !t.badge.toLowerCase().includes(q)) return false;
+                            if (!t.name.toLowerCase().includes(q) && !t.department.toLowerCase().includes(q) && !t.role.toLowerCase().includes(q)) return false;
                           }
                           if (techDeptFilter !== 'ALL' && t.department !== techDeptFilter) return false;
                           return true;
@@ -896,13 +895,10 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
                                 />
                                 <div>
                                   <span className="font-bold text-slate-900">{tech.name}</span>
-                                  <span className="font-mono text-[10px] text-indigo-600 bg-indigo-50 px-1 py-0.2 rounded ml-1.5">
-                                    {tech.badge}
-                                  </span>
                                   <span className="text-[10px] text-slate-500 ml-1.5">({tech.department})</span>
                                 </div>
                               </div>
-                              <span className="text-[10px] text-slate-400">{tech.shift}</span>
+                              <span className="text-[10px] text-slate-400">{tech.role}</span>
                             </div>
                           );
                         })}

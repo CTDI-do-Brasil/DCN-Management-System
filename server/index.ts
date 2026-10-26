@@ -527,7 +527,7 @@ app.post('/api/dcns', async (req: Request, res: Response) => {
               create: (training.attendeesList || []).map((a: any) => ({
                 technicianId: a.technicianId || null,
                 name: a.name,
-                badge: a.badge,
+                badge: a.badge || '',
                 department: a.department,
                 signedDate: a.signedDate || null,
                 status: a.status || 'PENDENTE',
@@ -741,8 +741,13 @@ app.get('/api/technicians', async (_req: Request, res: Response) => {
 
 app.post('/api/technicians', async (req: Request, res: Response) => {
   try {
+    const data = {
+      ...req.body,
+      badge: req.body.badge || `TECH-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`,
+      shift: req.body.shift || ''
+    };
     const tech = await prisma.technician.create({
-      data: req.body
+      data
     });
     res.status(201).json(tech);
   } catch (error: any) {

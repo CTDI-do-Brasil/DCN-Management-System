@@ -80,16 +80,16 @@ export const TrainingMatrix: React.FC<TrainingMatrixProps> = ({ onSelectDCN, onN
   // Available technicians not yet added to this DCN
   const availableTechnicians = currentModalDCN ? technicians.filter(tech => {
     const isAlreadyIn = currentModalDCN.training?.attendeesList?.some(
-      a => a.badge === tech.badge || a.technicianId === tech.id
+      a => a.technicianId === tech.id || a.name === tech.name || (tech.badge && a.badge === tech.badge)
     );
     if (isAlreadyIn) return false;
 
     if (attendeeSearch) {
       const q = attendeeSearch.toLowerCase();
       const matchName = tech.name.toLowerCase().includes(q);
-      const matchBadge = tech.badge.toLowerCase().includes(q);
       const matchDept = tech.department.toLowerCase().includes(q);
-      if (!matchName && !matchBadge && !matchDept) return false;
+      const matchRole = tech.role.toLowerCase().includes(q);
+      if (!matchName && !matchDept && !matchRole) return false;
     }
 
     if (departmentFilter !== 'ALL' && tech.department !== departmentFilter) {
@@ -337,9 +337,6 @@ export const TrainingMatrix: React.FC<TrainingMatrixProps> = ({ onSelectDCN, onN
                           <div>
                             <div className="flex items-center space-x-2">
                               <span className="font-bold text-slate-900">{att.name}</span>
-                              <span className="font-mono text-[10px] text-indigo-600 bg-indigo-50 px-1.5 py-0.2 rounded border border-indigo-100">
-                                {att.badge}
-                              </span>
                             </div>
                             <p className="text-[10px] text-slate-500">{att.department}</p>
                           </div>
@@ -353,7 +350,7 @@ export const TrainingMatrix: React.FC<TrainingMatrixProps> = ({ onSelectDCN, onN
                             </span>
                           ) : (
                             <button
-                              onClick={() => signTechnicianTraining(currentModalDCN.id, att.badge)}
+                              onClick={() => signTechnicianTraining(currentModalDCN.id, att.technicianId || att.badge || att.name)}
                               className="px-2 py-1 text-[10px] font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded transition-colors"
                               title="Registrar assinatura individual"
                             >
@@ -363,7 +360,7 @@ export const TrainingMatrix: React.FC<TrainingMatrixProps> = ({ onSelectDCN, onN
 
                           {currentModalDCN.training?.status !== 'CONCLUIDO' && (
                             <button
-                              onClick={() => removeTechnicianFromDCN(currentModalDCN.id, att.badge)}
+                              onClick={() => removeTechnicianFromDCN(currentModalDCN.id, att.technicianId || att.badge || att.name)}
                               className="p-1 text-slate-400 hover:text-rose-600 rounded transition-colors"
                               title="Remover da ata"
                             >
@@ -396,7 +393,7 @@ export const TrainingMatrix: React.FC<TrainingMatrixProps> = ({ onSelectDCN, onN
                   <Search className="w-3.5 h-3.5 absolute left-2.5 top-2 text-slate-400" />
                   <input
                     type="text"
-                    placeholder="Filtrar por nome ou matrícula..."
+                    placeholder="Filtrar por nome ou departamento..."
                     value={attendeeSearch}
                     onChange={e => setAttendeeSearch(e.target.value)}
                     className="w-full pl-8 pr-2 py-1 text-xs border border-slate-300 rounded-md bg-white"
@@ -454,10 +451,7 @@ export const TrainingMatrix: React.FC<TrainingMatrixProps> = ({ onSelectDCN, onN
                           />
                           <div>
                             <span className="font-bold text-slate-800">{tech.name}</span>
-                            <span className="font-mono text-[10px] text-indigo-600 bg-indigo-50 px-1 py-0.2 rounded ml-1.5 border border-indigo-100">
-                              {tech.badge}
-                            </span>
-                            <span className="text-[10px] text-slate-500 ml-2">({tech.department} • {tech.shift})</span>
+                            <span className="text-[10px] text-slate-500 ml-2">({tech.department})</span>
                           </div>
                         </div>
 
