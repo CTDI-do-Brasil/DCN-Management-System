@@ -528,7 +528,7 @@ app.post('/api/dcns', async (req: Request, res: Response) => {
                 technicianId: a.technicianId || null,
                 name: a.name,
                 badge: a.badge || '',
-                department: a.department,
+                department: a.department || '',
                 signedDate: a.signedDate || null,
                 status: a.status || 'PENDENTE',
                 score: a.score !== undefined ? Number(a.score) : null
@@ -744,7 +744,8 @@ app.post('/api/technicians', async (req: Request, res: Response) => {
     const data = {
       ...req.body,
       badge: req.body.badge || `TECH-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`,
-      shift: req.body.shift || ''
+      shift: req.body.shift || '',
+      department: req.body.department || ''
     };
     const tech = await prisma.technician.create({
       data

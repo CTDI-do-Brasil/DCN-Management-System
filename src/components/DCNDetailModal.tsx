@@ -865,7 +865,7 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
                           if (alreadyIn) return false;
                           if (techSearch) {
                             const q = techSearch.toLowerCase();
-                            if (!t.name.toLowerCase().includes(q) && !t.department.toLowerCase().includes(q) && !t.role.toLowerCase().includes(q)) return false;
+                            if (!t.name.toLowerCase().includes(q) && !(t.department?.toLowerCase().includes(q)) && !t.role.toLowerCase().includes(q)) return false;
                           }
                           if (techDeptFilter !== 'ALL' && t.department !== techDeptFilter) return false;
                           return true;
@@ -895,7 +895,7 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
                                 />
                                 <div>
                                   <span className="font-bold text-slate-900">{tech.name}</span>
-                                  <span className="text-[10px] text-slate-500 ml-1.5">({tech.department})</span>
+                                  {tech.department && <span className="text-[10px] text-slate-500 ml-1.5">({tech.department})</span>}
                                 </div>
                               </div>
                               <span className="text-[10px] text-slate-400">{tech.role}</span>

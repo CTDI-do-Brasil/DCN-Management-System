@@ -87,7 +87,7 @@ export const TrainingMatrix: React.FC<TrainingMatrixProps> = ({ onSelectDCN, onN
     if (attendeeSearch) {
       const q = attendeeSearch.toLowerCase();
       const matchName = tech.name.toLowerCase().includes(q);
-      const matchDept = tech.department.toLowerCase().includes(q);
+      const matchDept = tech.department?.toLowerCase().includes(q) || false;
       const matchRole = tech.role.toLowerCase().includes(q);
       if (!matchName && !matchDept && !matchRole) return false;
     }
@@ -451,7 +451,7 @@ export const TrainingMatrix: React.FC<TrainingMatrixProps> = ({ onSelectDCN, onN
                           />
                           <div>
                             <span className="font-bold text-slate-800">{tech.name}</span>
-                            <span className="text-[10px] text-slate-500 ml-2">({tech.department})</span>
+                            {tech.department && <span className="text-[10px] text-slate-500 ml-2">({tech.department})</span>}
                           </div>
                         </div>
 

@@ -52,7 +52,6 @@ export const TechniciansView: React.FC<TechniciansViewProps> = ({ onSelectDCN })
 
   // Search & Filter State
   const [search, setSearch] = useState('');
-  const [departmentFilter, setDepartmentFilter] = useState('ALL');
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [viewMode, setViewMode] = useState<'grid' | 'table'>('table');
 
@@ -66,7 +65,6 @@ export const TechniciansView: React.FC<TechniciansViewProps> = ({ onSelectDCN })
   // Form State
   const [formData, setFormData] = useState({
     name: '',
-    department: 'Produção',
     role: '',
     email: '',
     active: true,
@@ -76,15 +74,6 @@ export const TechniciansView: React.FC<TechniciansViewProps> = ({ onSelectDCN })
 
   const [formErrors, setFormErrors] = useState<{ [key: string]: string }>({});
 
-  // Get all unique departments
-  const departments = useMemo(() => {
-    const set = new Set<string>();
-    technicians.forEach(t => {
-      if (t.department) set.add(t.department);
-    });
-    return Array.from(set);
-  }, [technicians]);
-
   // Filtered Technicians
   const filteredTechnicians = useMemo(() => {
     return technicians.filter(tech => {
@@ -92,18 +81,12 @@ export const TechniciansView: React.FC<TechniciansViewProps> = ({ onSelectDCN })
       if (search) {
         const q = search.toLowerCase();
         const matchName = tech.name.toLowerCase().includes(q);
-        const matchDept = tech.department.toLowerCase().includes(q);
         const matchRole = tech.role.toLowerCase().includes(q);
         const matchEmail = tech.email?.toLowerCase().includes(q);
         const matchSkills = tech.skills?.some(s => s.toLowerCase().includes(q));
-        if (!matchName && !matchDept && !matchRole && !matchEmail && !matchSkills) {
+        if (!matchName && !matchRole && !matchEmail && !matchSkills) {
           return false;
         }
-      }
-
-      // Department
-      if (departmentFilter !== 'ALL' && tech.department !== departmentFilter) {
-        return false;
       }
 
       // Status
@@ -114,7 +97,7 @@ export const TechniciansView: React.FC<TechniciansViewProps> = ({ onSelectDCN })
 
       return true;
     });
-  }, [technicians, search, departmentFilter, statusFilter]);
+  }, [technicians, search, statusFilter]);
 
   // Statistics
   const totalCount = technicians.length;
@@ -127,7 +110,6 @@ export const TechniciansView: React.FC<TechniciansViewProps> = ({ onSelectDCN })
     setEditingTech(tech);
     setFormData({
       name: tech.name,
-      department: tech.department,
       role: tech.role,
       email: tech.email || '',
       active: tech.active,
@@ -142,7 +124,6 @@ export const TechniciansView: React.FC<TechniciansViewProps> = ({ onSelectDCN })
     setEditingTech(null);
     setFormData({
       name: '',
-      department: 'Produção',
       role: '',
       email: '',
       active: true,
@@ -168,7 +149,6 @@ export const TechniciansView: React.FC<TechniciansViewProps> = ({ onSelectDCN })
     if (editingTech) {
       updateTechnician(editingTech.id, {
         name: formData.name.trim(),
-        department: formData.department,
         role: formData.role.trim(),
         email: formData.email.trim() || undefined,
         active: formData.active,
@@ -178,7 +158,6 @@ export const TechniciansView: React.FC<TechniciansViewProps> = ({ onSelectDCN })
     } else {
       addTechnician({
         name: formData.name.trim(),
-        department: formData.department,
         role: formData.role.trim(),
         email: formData.email.trim() || undefined,
         active: formData.active,
@@ -211,10 +190,9 @@ export const TechniciansView: React.FC<TechniciansViewProps> = ({ onSelectDCN })
 
   // Export CSV
   const handleExportCSV = () => {
-    const headers = ['Nome', 'Departamento', 'Cargo', 'Status', 'DCNs Treinadas', 'Email'];
+    const headers = ['Nome', 'Cargo', 'Status', 'DCNs Treinadas', 'Email'];
     const rows = filteredTechnicians.map(t => [
       `"${t.name}"`,
-      `"${t.department}"`,
       `"${t.role}"`,
       t.active ? 'Ativo' : 'Inativo',
       t.trainedDCNIds.length,
@@ -321,14 +299,14 @@ export const TechniciansView: React.FC<TechniciansViewProps> = ({ onSelectDCN })
 
       {/* Filter and Search Bar */}
       <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs space-y-3">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           
           {/* Search Input */}
           <div className="relative sm:col-span-2">
             <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-400" />
             <input
               type="text"
-              placeholder="Buscar por nome, departamento, cargo ou e-mail..."
+              placeholder="Buscar por nome, cargo ou e-mail..."
               value={search}
               onChange={e => setSearch(e.target.value)}
               className="w-full pl-9 pr-3 py-1.5 text-xs border border-slate-300 rounded-lg bg-white focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500"
@@ -338,20 +316,6 @@ export const TechniciansView: React.FC<TechniciansViewProps> = ({ onSelectDCN })
                 <X className="w-3.5 h-3.5" />
               </button>
             )}
-          </div>
-
-          {/* Department Filter */}
-          <div>
-            <select
-              value={departmentFilter}
-              onChange={e => setDepartmentFilter(e.target.value)}
-              className="w-full py-1.5 px-3 text-xs border border-slate-300 rounded-lg bg-white text-slate-700 font-medium"
-            >
-              <option value="ALL">Departamento: Todos</option>
-              {departments.map(dept => (
-                <option key={dept} value={dept}>{dept}</option>
-              ))}
-            </select>
           </div>
 
           {/* Status Filter */}
@@ -372,11 +336,10 @@ export const TechniciansView: React.FC<TechniciansViewProps> = ({ onSelectDCN })
         <div className="flex items-center justify-between pt-2 border-t border-slate-100 text-xs text-slate-500">
           <span>Mostrando <strong>{filteredTechnicians.length}</strong> de <strong>{totalCount}</strong> técnicos cadastrados</span>
           
-          {(search || departmentFilter !== 'ALL' || statusFilter !== 'ALL') && (
+          {(search || statusFilter !== 'ALL') && (
             <button
               onClick={() => {
                 setSearch('');
-                setDepartmentFilter('ALL');
                 setStatusFilter('ALL');
               }}
               className="text-xs font-semibold text-indigo-600 hover:text-indigo-800"
@@ -409,7 +372,7 @@ export const TechniciansView: React.FC<TechniciansViewProps> = ({ onSelectDCN })
               <thead className="bg-slate-50 font-semibold text-slate-600 uppercase text-[10px] tracking-wider">
                 <tr>
                   <th className="py-3 px-4 text-left">Colaborador</th>
-                  <th className="py-3 px-4 text-left">Departamento & Função</th>
+                  <th className="py-3 px-4 text-left">Cargo / Especialidade</th>
                   <th className="py-3 px-4 text-left">Status</th>
                   <th className="py-3 px-4 text-left">DCNs Treinadas</th>
                   <th className="py-3 px-4 text-right">Ações</th>
@@ -444,10 +407,9 @@ export const TechniciansView: React.FC<TechniciansViewProps> = ({ onSelectDCN })
                         </div>
                       </td>
 
-                      {/* Department & Role */}
+                      {/* Role */}
                       <td className="py-3.5 px-4 whitespace-nowrap">
-                        <p className="font-semibold text-slate-800">{tech.department}</p>
-                        <p className="text-slate-500 text-[11px]">{tech.role}</p>
+                        <p className="font-semibold text-slate-800">{tech.role}</p>
                       </td>
 
                       {/* Status */}
@@ -594,40 +556,20 @@ export const TechniciansView: React.FC<TechniciansViewProps> = ({ onSelectDCN })
                 {formErrors.name && <p className="text-[10px] text-rose-600 mt-0.5">{formErrors.name}</p>}
               </div>
 
-              {/* Departamento & Cargo */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-semibold text-slate-700 mb-1">
-                    Departamento / Linha *
-                  </label>
-                  <select
-                    value={formData.department}
-                    onChange={e => setFormData({ ...formData, department: e.target.value })}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white text-slate-700"
-                  >
-                    <option value="Produção">Produção</option>
-                    <option value="Qualidade CQ">Qualidade CQ</option>
-                    <option value="Teste & Reparo">Teste & Reparo</option>
-                    <option value="Manutenção & Automação">Manutenção & Automação</option>
-                    <option value="Engenharia de Processos">Engenharia de Processos</option>
-                    <option value="Almoxarifado & Logística">Almoxarifado & Logística</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block font-semibold text-slate-700 mb-1">
-                    Cargo / Especialidade *
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="Ex: Técnico Eletrônico Pleno"
-                    value={formData.role}
-                    onChange={e => setFormData({ ...formData, role: e.target.value })}
-                    className={`w-full px-3 py-2 border rounded-lg bg-white ${formErrors.role ? 'border-rose-500 ring-1 ring-rose-500' : 'border-slate-300'}`}
-                  />
-                  {formErrors.role && <p className="text-[10px] text-rose-600 mt-0.5">{formErrors.role}</p>}
-                </div>
+              {/* Cargo / Especialidade */}
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">
+                  Cargo / Especialidade *
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Ex: Técnico Eletrônico Pleno"
+                  value={formData.role}
+                  onChange={e => setFormData({ ...formData, role: e.target.value })}
+                  className={`w-full px-3 py-2 border rounded-lg bg-white ${formErrors.role ? 'border-rose-500 ring-1 ring-rose-500' : 'border-slate-300'}`}
+                />
+                {formErrors.role && <p className="text-[10px] text-rose-600 mt-0.5">{formErrors.role}</p>}
               </div>
 
               {/* E-mail Corporativo */}
@@ -828,7 +770,7 @@ export const TechniciansView: React.FC<TechniciansViewProps> = ({ onSelectDCN })
                     <h3 className="text-base font-bold text-slate-900">{viewingTech.name}</h3>
                   </div>
                   <p className="text-xs text-slate-500 mt-0.5">
-                    {viewingTech.role} • {viewingTech.department}
+                    {viewingTech.role}
                   </p>
                 </div>
               </div>

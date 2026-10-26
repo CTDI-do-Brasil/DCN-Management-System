@@ -42,7 +42,7 @@ export interface Technician {
   id: string;
   name: string;
   badge?: string;
-  department: string;
+  department?: string;
   shift?: ShiftType;
   role: string;
 
@@ -59,7 +59,7 @@ export interface TrainingAttendee {
   technicianId?: string;
   name: string;
   badge?: string;
-  department: string;
+  department?: string;
   signedDate?: string;
   status?: 'CONCLUIDO' | 'PENDENTE' | 'JUSTIFICADO';
   score?: number;

@@ -69,7 +69,7 @@ model Technician {
   id            String    @id @default(uuid())
   name          String
   badge         String?   @unique
-  department    String
+  department    String?
   shift         String?
   role          String
   email         String?
@@ -119,7 +119,7 @@ model TrainingAttendee {
   technician   Technician?     @relation(fields: [technicianId], references: [id], onDelete: SetNull)
   name         String
   badge        String?
-  department   String
+  department   String?
   signedDate   String?
   status       String?         @default("PENDENTE")
   score        Float?
