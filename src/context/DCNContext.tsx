@@ -45,7 +45,7 @@ interface DCNContextType {
   signTechnicianTraining: (dcnId: string, badgeOrId: string) => void;
 
   // Actions
-  createDCN: (newDCN: Omit<DCN, 'id' | 'auditTrail'>) => DCN;
+  createDCN: (newDCN: Omit<DCN, 'id' | 'auditTrail'>) => Promise<DCN>;
   updateDCN: (id: string, updatedFields: Partial<DCN>, auditComment?: string) => void;
   deleteDCN: (id: string) => void;
   advanceDCNStatus: (id: string, targetStatus?: DCNStatus, comment?: string) => void;
@@ -504,7 +504,7 @@ export const DCNProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   };
 
   // Create DCN
-  const createDCN = (newDCNData: Omit<DCN, 'id' | 'auditTrail'>): DCN => {
+  const createDCN = async (newDCNData: Omit<DCN, 'id' | 'auditTrail'>): Promise<DCN> => {
     const nextId = `DCN-2025-${String(dcns.length + 1).padStart(3, '0')}`;
     const timestamp = new Date().toISOString().replace('T', ' ').slice(0, 16);
     
@@ -518,14 +518,29 @@ export const DCNProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       comment: 'DCN recebida e documentada na esteira de engenharia.'
     };
 
-    const newDCN: DCN = {
+    let newDCN: DCN = {
       ...newDCNData,
       id: nextId,
       auditTrail: [initialAudit]
     };
 
+    try {
+      const serverDCN = await api.createDCN({ ...newDCNData, id: nextId } as any);
+      if (serverDCN && serverDCN.id) {
+        newDCN = {
+          ...serverDCN,
+          materials: serverDCN.materials || newDCN.materials,
+          training: serverDCN.training || newDCN.training,
+          implementationChecklist: serverDCN.implementationChecklist || newDCN.implementationChecklist,
+          attachments: serverDCN.attachments || newDCN.attachments,
+          auditTrail: serverDCN.auditTrail && serverDCN.auditTrail.length > 0 ? serverDCN.auditTrail : newDCN.auditTrail
+        };
+      }
+    } catch (err) {
+      console.warn('[DCNContext] Backend createDCN fallback to local:', err);
+    }
+
     setDcns(prev => [newDCN, ...prev]);
-    api.createDCN(newDCNData).catch(() => {});
     return newDCN;
   };
 

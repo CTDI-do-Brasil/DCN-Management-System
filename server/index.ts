@@ -464,6 +464,7 @@ app.get('/api/dcns/:id', async (req: Request, res: Response) => {
 app.post('/api/dcns', async (req: Request, res: Response) => {
   try {
     const {
+      id,
       dcnNumber,
       title,
       description,
@@ -485,6 +486,7 @@ app.post('/api/dcns', async (req: Request, res: Response) => {
 
     const newDCN = await prisma.dCN.create({
       data: {
+        id: id || undefined,
         dcnNumber,
         title,
         description,
@@ -795,15 +797,22 @@ app.post('/api/dcns/:id/attachments', upload.single('file'), async (req: Request
 
     const { category = 'DOCUMENTO_COMPLEMENTAR', uploadedBy = 'Engenharia' } = req.body;
 
-    // Verificar se a DCN existe
-    const dcn = await prisma.dCN.findUnique({ where: { id } });
+    // Verificar se a DCN existe (por ID interno ou dcnNumber)
+    const dcn = await prisma.dCN.findFirst({
+      where: {
+        OR: [
+          { id },
+          { dcnNumber: id }
+        ]
+      }
+    });
     if (!dcn) {
       return res.status(404).json({ error: 'DCN não encontrada.' });
     }
 
     const fileExt = path.extname(file.originalname);
     const sanitizedBase = path.basename(file.originalname, fileExt).replace(/[^a-zA-Z0-9_-]/g, '_');
-    const objectKey = `dcns/${id}/${Date.now()}-${sanitizedBase}${fileExt}`;
+    const objectKey = `dcns/${dcn.id}/${Date.now()}-${sanitizedBase}${fileExt}`;
 
     // Upload do buffer para o bucket do MinIO
     await uploadFileToMinio(objectKey, file.buffer, file.size, file.mimetype);
@@ -811,7 +820,7 @@ app.post('/api/dcns/:id/attachments', upload.single('file'), async (req: Request
     // Salvar registro no banco de dados via Prisma
     const attachment = await prisma.dCNAttachment.create({
       data: {
-        dcnId: id,
+        dcnId: dcn.id,
         name: file.originalname,
         type: detectFileType(file.mimetype, file.originalname),
         size: formatFileSize(file.size),
@@ -832,7 +841,7 @@ app.post('/api/dcns/:id/attachments', upload.single('file'), async (req: Request
     // Registrar na trilha de auditoria da DCN
     await prisma.auditLogEntry.create({
       data: {
-        dcnId: id,
+        dcnId: dcn.id,
         timestamp: new Date().toISOString(),
         user: uploadedBy,
         userRole: 'Engenheiro Responsável',

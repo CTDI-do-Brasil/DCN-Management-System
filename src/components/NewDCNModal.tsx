@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { 
   X, 
   PlusCircle, 
@@ -11,7 +11,12 @@ import {
   Paperclip, 
   CheckCircle,
   Calendar,
-  AlertCircle
+  AlertCircle,
+  Image as ImageIcon,
+  Video,
+  FileCode,
+  HardDrive,
+  Loader2
 } from 'lucide-react';
 import { useDCN } from '../context/DCNContext';
 import { DCNStatus, PriorityLevel, DCNAttachment, MaterialItem } from '../types';
@@ -25,13 +30,57 @@ interface FormMaterialItem {
   supplier: string;
 }
 
+interface PendingAttachment {
+  id: string;
+  file: File;
+  name: string;
+  sizeFormatted: string;
+  type: DCNAttachment['type'];
+  category: DCNAttachment['category'];
+}
+
+function detectFileTypeAndCategory(file: File): { type: DCNAttachment['type']; category: DCNAttachment['category'] } {
+  const ext = file.name.split('.').pop()?.toLowerCase() || '';
+  const mime = file.type.toLowerCase();
+
+  let type: DCNAttachment['type'] = 'DOC';
+  let category: DCNAttachment['category'] = 'DOCUMENTO_COMPLEMENTAR';
+
+  if (mime.includes('pdf') || ext === 'pdf') {
+    type = 'PDF';
+    category = 'PDF_OFICIAL';
+  } else if (['dwg', 'dxf', 'cad', 'stp', 'step'].includes(ext)) {
+    type = 'DOC';
+    category = 'DESENHO_TECNICO';
+  } else if (mime.startsWith('image/') || ['png', 'jpg', 'jpeg', 'webp', 'svg', 'bmp'].includes(ext)) {
+    type = 'IMG';
+    category = 'FOTO_EVIDENCIA';
+  } else if (mime.startsWith('video/') || ['mp4', 'mov', 'webm', 'avi', 'mkv'].includes(ext)) {
+    type = 'VIDEO';
+    category = 'FOTO_EVIDENCIA';
+  } else if (['xls', 'xlsx', 'csv'].includes(ext) || mime.includes('sheet') || mime.includes('excel')) {
+    type = 'SPREADSHEET';
+    category = 'DOCUMENTO_COMPLEMENTAR';
+  }
+
+  return { type, category };
+}
+
+function formatFileSize(bytes: number): string {
+  if (bytes === 0) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
+}
+
 interface NewDCNModalProps {
   onClose: () => void;
   onSuccess: (dcnId: string) => void;
 }
 
 export const NewDCNModal: React.FC<NewDCNModalProps> = ({ onClose, onSuccess }) => {
-  const { createDCN, currentEngineer } = useDCN();
+  const { createDCN, uploadAttachmentFile, currentEngineer } = useDCN();
 
   const todayStr = new Date().toISOString().split('T')[0];
   const defaultDueDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
@@ -102,87 +151,140 @@ export const NewDCNModal: React.FC<NewDCNModalProps> = ({ onClose, onSuccess }) 
   const [trainingAudience, setTrainingAudience] = useState('Operadores de Linha e Inspetores CQ');
   const [trainingHours, setTrainingHours] = useState(2);
 
-  // Attachments
-  const [attachments, setAttachments] = useState<DCNAttachment[]>([]);
+  // Attachments State & MinIO Upload Queue
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [pendingFiles, setPendingFiles] = useState<PendingAttachment[]>([]);
+  const [isDragging, setIsDragging] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitProgress, setSubmitProgress] = useState<string | null>(null);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
-  const [simulatedFileName, setSimulatedFileName] = useState('');
+  const handleAddFiles = (fileList: FileList | File[]) => {
+    const filesArray = Array.from(fileList);
+    if (filesArray.length === 0) return;
 
-  const handleAddSimulatedAttachment = () => {
-    const isVideo = ['.mp4', '.mov', '.webm', '.avi', '.mkv'].some(ext => simulatedFileName.toLowerCase().endsWith(ext));
-    const isImg = ['.png', '.jpg', '.jpeg', '.webp'].some(ext => simulatedFileName.toLowerCase().endsWith(ext));
-    const isDoc = ['.docx', '.doc', '.txt'].some(ext => simulatedFileName.toLowerCase().endsWith(ext));
-    const isSheet = ['.xls', '.xlsx', '.csv'].some(ext => simulatedFileName.toLowerCase().endsWith(ext));
-    const type = isVideo ? 'VIDEO' : isImg ? 'IMG' : isSheet ? 'SPREADSHEET' : isDoc ? 'DOC' : 'PDF';
+    const newItems: PendingAttachment[] = filesArray.map(file => {
+      const { type, category } = detectFileTypeAndCategory(file);
+      return {
+        id: `pending-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+        file,
+        name: file.name,
+        sizeFormatted: formatFileSize(file.size),
+        type,
+        category
+      };
+    });
 
-    setAttachments(prev => [
-      ...prev,
-      {
-        id: `att-${Date.now()}`,
-        name: simulatedFileName,
-        type: type,
-        size: isVideo ? '15.4 MB' : '1.8 MB',
-        category: isVideo ? 'FOTO_EVIDENCIA' : 'DOCUMENTO_COMPLEMENTAR',
-        uploadedAt: todayStr,
-        uploadedBy: currentEngineer.name
-      }
-    ]);
-    setSimulatedFileName('');
+    setPendingFiles(prev => [...prev, ...newItems]);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleRemovePendingFile = (id: string) => {
+    setPendingFiles(prev => prev.filter(f => f.id !== id));
+  };
+
+  const handleUpdateFileCategory = (id: string, category: DCNAttachment['category']) => {
+    setPendingFiles(prev => prev.map(f => f.id === id ? { ...f, category } : f));
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      handleAddFiles(e.dataTransfer.files);
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!title || !dcnNumber || !description) return;
 
-    const materials: MaterialItem[] = needsMaterial
-      ? materialsList
-          .filter(m => m.code.trim().length > 0 || m.description.trim().length > 0)
-          .map((m, idx) => ({
-            id: `mat-${Date.now()}-${idx}`,
-            code: m.code.trim() || `ITEM-${idx + 1}`,
-            description: m.description.trim() || 'Item requisitado para alteração de processo',
-            quantity: Number(m.quantity) || 1,
-            unit: m.unit || 'UN',
-            supplier: m.supplier.trim() || 'Fornecedor Homologado',
-            expectedDate: dueDate,
-            status: 'PEDIDO_EMITIDO'
-          }))
-      : [];
+    setIsSubmitting(true);
+    setSubmitError(null);
 
-    const newDCN = createDCN({
-      dcnNumber,
-      title,
-      description,
-      area,
-      responsible,
-      receivedDate,
-      dueDate,
-      status,
-      priority,
-      needsMaterial,
-      materials,
-      needsTraining,
-      training: needsTraining ? {
-        id: `trn-${Date.now()}`,
-        instructor: responsible,
-        targetAudience: trainingAudience,
-        department: area,
-        estimatedHours: Number(trainingHours) || 2,
-        totalPlanned: 12,
-        totalTrained: 0,
-        status: 'PENDENTE',
-        trainingTopics: [
-          'Instrução de Trabalho revisada',
-          'Parâmetros técnicos e tolerâncias de qualidade'
-        ]
-      } : undefined,
-      implementationChecklist: [
-        { id: `chk-${Date.now()}-1`, title: 'Revisão da Ficha de Instrução de Processo (FIT)', responsible, completed: false, mandatory: true },
-        { id: `chk-${Date.now()}-2`, title: 'Inspeção e liberação do 1º Lote Piloto', responsible: 'Qualidade Assegurada', completed: false, mandatory: true }
-      ],
-      attachments
-    });
+    try {
+      const materials: MaterialItem[] = needsMaterial
+        ? materialsList
+            .filter(m => m.code.trim().length > 0 || m.description.trim().length > 0)
+            .map((m, idx) => ({
+              id: `mat-${Date.now()}-${idx}`,
+              code: m.code.trim() || `ITEM-${idx + 1}`,
+              description: m.description.trim() || 'Item requisitado para alteração de processo',
+              quantity: Number(m.quantity) || 1,
+              unit: m.unit || 'UN',
+              supplier: m.supplier.trim() || 'Fornecedor Homologado',
+              expectedDate: dueDate,
+              status: 'PEDIDO_EMITIDO'
+            }))
+        : [];
 
-    onSuccess(newDCN.id);
+      setSubmitProgress('Registrando DCN no banco de dados...');
+
+      const newDCN = await createDCN({
+        dcnNumber,
+        title,
+        description,
+        area,
+        responsible,
+        receivedDate,
+        dueDate,
+        status,
+        priority,
+        needsMaterial,
+        materials,
+        needsTraining,
+        training: needsTraining ? {
+          id: `trn-${Date.now()}`,
+          instructor: responsible,
+          targetAudience: trainingAudience,
+          department: area,
+          estimatedHours: Number(trainingHours) || 2,
+          totalPlanned: 12,
+          totalTrained: 0,
+          status: 'PENDENTE',
+          trainingTopics: [
+            'Instrução de Trabalho revisada',
+            'Parâmetros técnicos e tolerâncias de qualidade'
+          ]
+        } : undefined,
+        implementationChecklist: [
+          { id: `chk-${Date.now()}-1`, title: 'Revisão da Ficha de Instrução de Processo (FIT)', responsible, completed: false, mandatory: true },
+          { id: `chk-${Date.now()}-2`, title: 'Inspeção e liberação do 1º Lote Piloto', responsible: 'Qualidade Assegurada', completed: false, mandatory: true }
+        ],
+        attachments: []
+      });
+
+      // Se houver arquivos selecionados, faz upload real de cada um para o MinIO
+      if (pendingFiles.length > 0) {
+        for (let i = 0; i < pendingFiles.length; i++) {
+          const item = pendingFiles[i];
+          setSubmitProgress(`Enviando "${item.name}" (${i + 1}/${pendingFiles.length}) para o MinIO...`);
+          try {
+            await uploadAttachmentFile(newDCN.id, item.file, item.category);
+          } catch (uploadErr) {
+            console.error(`Erro ao enviar anexo ${item.name} para o MinIO:`, uploadErr);
+          }
+        }
+      }
+
+      onSuccess(newDCN.id);
+    } catch (err: any) {
+      console.error('Erro ao cadastrar DCN:', err);
+      setSubmitError(err.message || 'Falha ao cadastrar a DCN. Tente novamente.');
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -528,63 +630,184 @@ export const NewDCNModal: React.FC<NewDCNModalProps> = ({ onClose, onSuccess }) 
 
           </div>
 
-          {/* Seção 4: Anexos Iniciais */}
+          {/* Seção 4: Anexos Iniciais (Salvos no MinIO) */}
           <div className="space-y-3 pt-2 border-t border-slate-100">
-            <h3 className="font-bold text-slate-800 uppercase tracking-wider text-[11px] flex items-center">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 mr-1.5"></span>
-              4. Anexos Iniciais (PDF, Imagens, Desenhos)
-            </h3>
-
-            <div className="flex space-x-2">
-              <input
-                type="text"
-                placeholder="Ex: Desenho_Tecnico_Rev3.pdf ou Foto_Evidencia.jpg"
-                value={simulatedFileName}
-                onChange={e => setSimulatedFileName(e.target.value)}
-                className="flex-1 px-3 py-1.5 border border-slate-300 rounded-lg bg-white"
-              />
-              <button
-                type="button"
-                onClick={handleAddSimulatedAttachment}
-                className="px-3 py-1.5 bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-300 rounded-lg font-semibold flex items-center"
-              >
-                <Upload className="w-3.5 h-3.5 mr-1" />
-                Anexar
-              </button>
+            <div className="flex items-center justify-between">
+              <h3 className="font-bold text-slate-800 uppercase tracking-wider text-[11px] flex items-center">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 mr-1.5"></span>
+                4. Anexos Iniciais (PDF, Imagens, Desenhos Técnicos)
+              </h3>
+              <span className="inline-flex items-center text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                <HardDrive className="w-3 h-3 mr-1 text-emerald-600" />
+                Armazenamento MinIO (S3)
+              </span>
             </div>
 
-            <div className="space-y-1.5">
-              {attachments.map((att, i) => (
-                <div key={i} className="p-2 bg-slate-50 border border-slate-200 rounded-lg flex items-center justify-between">
-                  <div className="flex items-center space-x-2">
-                    <Paperclip className="w-3.5 h-3.5 text-indigo-600" />
-                    <span className="font-medium text-slate-800">{att.name}</span>
-                    <span className="text-[10px] text-slate-400">({att.size})</span>
-                  </div>
-                  <span className="text-[10px] text-slate-500 font-semibold bg-white px-2 py-0.5 rounded border border-slate-200">
-                    {att.category.replace('_', ' ')}
-                  </span>
+            {/* Input nativo de arquivos (oculto, acionado por clique na zona ou no botão) */}
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              accept="application/pdf,image/*,video/*,.doc,.docx,.xls,.xlsx,.csv,.dwg,.dxf,.cad,.txt,.zip"
+              onChange={e => {
+                if (e.target.files && e.target.files.length > 0) {
+                  handleAddFiles(e.target.files);
+                  e.target.value = '';
+                }
+              }}
+              className="hidden"
+            />
+
+            {/* Zona de Seleção / Drag & Drop */}
+            <div
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+              onClick={() => fileInputRef.current?.click()}
+              className={`p-4 border-2 border-dashed rounded-xl cursor-pointer text-center transition-all ${
+                isDragging
+                  ? 'border-indigo-500 bg-indigo-50/70 scale-[1.01]'
+                  : 'border-slate-300 hover:border-indigo-400 bg-slate-50/60 hover:bg-slate-50'
+              }`}
+            >
+              <div className="flex flex-col items-center justify-center space-y-1.5">
+                <div className="w-10 h-10 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center">
+                  <Upload className="w-5 h-5" />
                 </div>
-              ))}
+                <div>
+                  <p className="text-xs font-bold text-slate-800">
+                    Clique para selecionar arquivos do seu computador
+                  </p>
+                  <p className="text-[11px] text-slate-500">
+                    ou arraste e solte arquivos aqui
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center justify-center gap-1.5 pt-1 text-[10px] text-slate-400">
+                  <span className="bg-white px-2 py-0.5 rounded border border-slate-200">PDF Oficial</span>
+                  <span className="bg-white px-2 py-0.5 rounded border border-slate-200">Desenhos CAD / DWG</span>
+                  <span className="bg-white px-2 py-0.5 rounded border border-slate-200">Fotos & Vídeos</span>
+                  <span className="bg-white px-2 py-0.5 rounded border border-slate-200">Planilhas / Docs</span>
+                </div>
+              </div>
             </div>
+
+            {/* Lista de Arquivos Selecionados */}
+            {pendingFiles.length > 0 && (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-[11px] font-semibold text-slate-600">
+                  <span>Arquivos Selecionados ({pendingFiles.length})</span>
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="text-indigo-600 hover:text-indigo-800 font-bold hover:underline inline-flex items-center cursor-pointer"
+                  >
+                    <Plus className="w-3 h-3 mr-0.5" />
+                    Adicionar mais arquivos
+                  </button>
+                </div>
+
+                <div className="space-y-2 max-h-[220px] overflow-y-auto pr-1">
+                  {pendingFiles.map(item => (
+                    <div
+                      key={item.id}
+                      className="p-2.5 bg-white border border-slate-200 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2 shadow-xs"
+                    >
+                      <div className="flex items-center space-x-2.5 min-w-0 flex-1">
+                        <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center shrink-0">
+                          {item.type === 'PDF' && <FileText className="w-4 h-4 text-rose-600" />}
+                          {item.type === 'IMG' && <ImageIcon className="w-4 h-4 text-emerald-600" />}
+                          {item.type === 'VIDEO' && <Video className="w-4 h-4 text-purple-600" />}
+                          {item.type === 'SPREADSHEET' && <FileCode className="w-4 h-4 text-teal-600" />}
+                          {item.type === 'DOC' && <FileText className="w-4 h-4 text-blue-600" />}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-xs font-semibold text-slate-900 truncate" title={item.name}>
+                            {item.name}
+                          </p>
+                          <div className="flex items-center gap-2 text-[10px] text-slate-400">
+                            <span>{item.sizeFormatted}</span>
+                            <span>•</span>
+                            <span className="text-emerald-700 font-medium">Será salvo no MinIO</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Categoria do arquivo e Ação Remover */}
+                      <div className="flex items-center space-x-2 shrink-0">
+                        <select
+                          value={item.category}
+                          onChange={e => handleUpdateFileCategory(item.id, e.target.value as DCNAttachment['category'])}
+                          className="text-[11px] font-medium bg-slate-50 border border-slate-300 rounded-lg px-2 py-1 text-slate-700 focus:outline-hidden focus:border-indigo-500"
+                        >
+                          <option value="PDF_OFICIAL">PDF Oficial da DCN</option>
+                          <option value="DESENHO_TECNICO">Desenho Técnico / CAD</option>
+                          <option value="FOTO_EVIDENCIA">Foto ou Vídeo de Evidência</option>
+                          <option value="REGISTRO_TREINAMENTO">Registro de Treinamento</option>
+                          <option value="DOCUMENTO_COMPLEMENTAR">Documento Complementar</option>
+                        </select>
+
+                        <button
+                          type="button"
+                          onClick={() => handleRemovePendingFile(item.id)}
+                          className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-md transition-colors cursor-pointer"
+                          title="Remover arquivo"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
+          {/* Banner de Erro caso falhe */}
+          {submitError && (
+            <div className="p-3 bg-rose-50 border border-rose-200 rounded-lg text-xs text-rose-700 flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
+              <span>{submitError}</span>
+            </div>
+          )}
+
           {/* Footer Submit */}
-          <div className="pt-4 border-t border-slate-200 flex items-center justify-end space-x-3">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors"
-            >
-              Cancelar
-            </button>
-            <button
-              type="submit"
-              className="px-5 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-sm transition-colors flex items-center"
-            >
-              <CheckCircle className="w-4 h-4 mr-1.5" />
-              Salvar e Iniciar Fluxo da DCN
-            </button>
+          <div className="pt-4 border-t border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="text-[11px] text-slate-500">
+              {submitProgress && isSubmitting && (
+                <span className="flex items-center text-indigo-600 font-semibold animate-pulse">
+                  <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />
+                  {submitProgress}
+                </span>
+              )}
+            </div>
+
+            <div className="flex items-center justify-end space-x-3">
+              <button
+                type="button"
+                onClick={onClose}
+                disabled={isSubmitting}
+                className="px-4 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                className="px-5 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-sm transition-colors flex items-center disabled:opacity-50 cursor-pointer"
+              >
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />
+                    Processando...
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle className="w-4 h-4 mr-1.5" />
+                    Salvar e Iniciar Fluxo da DCN
+                  </>
+                )}
+              </button>
+            </div>
           </div>
 
         </form>
