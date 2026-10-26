@@ -66,9 +66,10 @@ export const LoginModal: React.FC = () => {
 
     // 2. Validação por Regex estrito no frontend antes do envio
     if (!USER_FORMAT_REGEX.test(trimmedLogin)) {
-      setErrorMessage('Formato de usuário inválido! Use NOME.SOBRENOME (ex: RODRIGO.BARRETO).');
+      setErrorMessage('Formato de usuário inválido! Use NOME.SOBRENOME (ex: JONATAS.MIRANDA).');
       return;
     }
+
 
     // 3. Validação de senha vazia
     if (!senhaInput) {
@@ -196,8 +197,9 @@ export const LoginModal: React.FC = () => {
                   spellCheck="false"
                   value={loginInput}
                   onChange={handleLoginChange}
-                  placeholder="Ex: RODRIGO.BARRETO"
+                  placeholder="Ex: JONATAS.MIRANDA"
                   disabled={isSubmitting}
+
                   className={`
                     block w-full pl-10 pr-3.5 py-2.5 text-sm font-semibold rounded-xl border bg-slate-50/50 
                     text-slate-900 placeholder-slate-400 uppercase transition-all
@@ -292,16 +294,17 @@ export const LoginModal: React.FC = () => {
             <div className="grid grid-cols-3 gap-1.5 text-left">
               <button
                 type="button"
-                onClick={() => handleQuickFill('RODRIGO.BARRETO', 'admin')}
+                onClick={() => handleQuickFill('JONATAS.MIRANDA', 'admin')}
                 className="p-2 rounded-lg border border-rose-200 bg-rose-50/60 hover:bg-rose-100/80 transition-colors text-left group"
               >
                 <div className="text-[9px] font-bold text-rose-800 uppercase flex items-center justify-between">
                   <span>Admin</span>
                   <ChevronRight className="w-3 h-3 text-rose-500 opacity-60 group-hover:opacity-100" />
                 </div>
-                <div className="text-[11px] font-bold text-slate-900 truncate mt-0.5">RODRIGO.B</div>
+                <div className="text-[11px] font-bold text-slate-900 truncate mt-0.5">JONATAS.M</div>
                 <div className="text-[9px] text-slate-500 truncate">Senha: admin</div>
               </button>
+
 
               <button
                 type="button"

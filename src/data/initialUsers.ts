@@ -7,13 +7,14 @@ export interface LocalAuthUser extends User {
 export const INITIAL_USERS: LocalAuthUser[] = [
   {
     id: 'user-admin-01',
-    login: 'RODRIGO.BARRETO',
-    nome: 'Rodrigo Barreto',
+    login: 'JONATAS.MIRANDA',
+    nome: 'Jonatas Miranda',
     role: 'ADMIN',
     senha: 'admin',
     createdAt: '2024-01-01T00:00:00.000Z',
     updatedAt: '2024-01-01T00:00:00.000Z'
   },
+
   {
     id: 'user-eng-01',
     login: 'CARLOS.MENDES',

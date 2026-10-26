@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { 
   X, 
   PlusCircle, 
+  Plus,
+  Trash2,
   FileText, 
   Boxes, 
   GraduationCap, 
@@ -13,6 +15,15 @@ import {
 } from 'lucide-react';
 import { useDCN } from '../context/DCNContext';
 import { DCNStatus, PriorityLevel, DCNAttachment, MaterialItem } from '../types';
+
+interface FormMaterialItem {
+  id: string;
+  code: string;
+  description: string;
+  quantity: number;
+  unit: string;
+  supplier: string;
+}
 
 interface NewDCNModalProps {
   onClose: () => void;
@@ -36,12 +47,56 @@ export const NewDCNModal: React.FC<NewDCNModalProps> = ({ onClose, onSuccess }) 
   const [status, setStatus] = useState<DCNStatus>('RECEBIDA');
   const [priority, setPriority] = useState<PriorityLevel>('ALTA');
 
-  // Requirements Toggles
+  // Requirements Toggles & Materials List
   const [needsMaterial, setNeedsMaterial] = useState(false);
-  const [materialCode, setMaterialCode] = useState('');
-  const [materialDesc, setMaterialDesc] = useState('');
-  const [materialQty, setMaterialQty] = useState(500);
-  const [materialSupplier, setMaterialSupplier] = useState('');
+  const [materialsList, setMaterialsList] = useState<FormMaterialItem[]>([
+    {
+      id: 'mat-1',
+      code: '',
+      description: '',
+      quantity: 1,
+      unit: 'UN',
+      supplier: ''
+    }
+  ]);
+
+  const handleAddMaterialRow = () => {
+    setMaterialsList(prev => [
+      ...prev,
+      {
+        id: `mat-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        code: '',
+        description: '',
+        quantity: 1,
+        unit: 'UN',
+        supplier: ''
+      }
+    ]);
+  };
+
+  const handleRemoveMaterialRow = (id: string) => {
+    setMaterialsList(prev => prev.filter(m => m.id !== id));
+  };
+
+  const handleUpdateMaterialRow = (id: string, field: keyof FormMaterialItem, value: any) => {
+    setMaterialsList(prev => prev.map(m => m.id === id ? { ...m, [field]: value } : m));
+  };
+
+  const handleToggleNeedsMaterial = (checked: boolean) => {
+    setNeedsMaterial(checked);
+    if (checked && materialsList.length === 0) {
+      setMaterialsList([
+        {
+          id: `mat-${Date.now()}`,
+          code: '',
+          description: '',
+          quantity: 1,
+          unit: 'UN',
+          supplier: ''
+        }
+      ]);
+    }
+  };
 
   const [needsTraining, setNeedsTraining] = useState(false);
   const [trainingAudience, setTrainingAudience] = useState('Operadores de Linha e Inspetores CQ');
@@ -88,18 +143,20 @@ export const NewDCNModal: React.FC<NewDCNModalProps> = ({ onClose, onSuccess }) 
     e.preventDefault();
     if (!title || !dcnNumber || !description) return;
 
-    const materials: MaterialItem[] = needsMaterial && materialCode ? [
-      {
-        id: `mat-${Date.now()}`,
-        code: materialCode,
-        description: materialDesc || 'Item requisitado para alteração de processo',
-        quantity: Number(materialQty) || 1,
-        unit: 'UN',
-        supplier: materialSupplier || 'Fornecedor Homologado',
-        expectedDate: dueDate,
-        status: 'PEDIDO_EMITIDO'
-      }
-    ] : [];
+    const materials: MaterialItem[] = needsMaterial
+      ? materialsList
+          .filter(m => m.code.trim().length > 0 || m.description.trim().length > 0)
+          .map((m, idx) => ({
+            id: `mat-${Date.now()}-${idx}`,
+            code: m.code.trim() || `ITEM-${idx + 1}`,
+            description: m.description.trim() || 'Item requisitado para alteração de processo',
+            quantity: Number(m.quantity) || 1,
+            unit: m.unit || 'UN',
+            supplier: m.supplier.trim() || 'Fornecedor Homologado',
+            expectedDate: dueDate,
+            status: 'PEDIDO_EMITIDO'
+          }))
+      : [];
 
     const newDCN = createDCN({
       dcnNumber,
@@ -309,7 +366,7 @@ export const NewDCNModal: React.FC<NewDCNModalProps> = ({ onClose, onSuccess }) 
                   <input
                     type="checkbox"
                     checked={needsMaterial}
-                    onChange={e => setNeedsMaterial(e.target.checked)}
+                    onChange={e => handleToggleNeedsMaterial(e.target.checked)}
                     className="sr-only peer"
                   />
                   <div className="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
@@ -317,36 +374,118 @@ export const NewDCNModal: React.FC<NewDCNModalProps> = ({ onClose, onSuccess }) 
               </div>
 
               {needsMaterial && (
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-2 border-t border-blue-100">
-                  <div>
-                    <label className="block text-slate-600 font-semibold mb-0.5">Part Number / Código</label>
-                    <input
-                      type="text"
-                      placeholder="Ex: FIX-M5X20-INX"
-                      value={materialCode}
-                      onChange={e => setMaterialCode(e.target.value)}
-                      className="w-full px-2.5 py-1.5 border border-slate-300 rounded bg-white"
-                    />
+                <div className="space-y-3 pt-2.5 border-t border-blue-100">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-slate-700">
+                      Itens / Peças Necessárias ({materialsList.length})
+                    </span>
+                    <button
+                      type="button"
+                      onClick={handleAddMaterialRow}
+                      className="inline-flex items-center px-2.5 py-1 text-[11px] font-bold text-blue-700 bg-blue-100 hover:bg-blue-200 rounded-lg transition-colors cursor-pointer"
+                    >
+                      <Plus className="w-3.5 h-3.5 mr-1" />
+                      Adicionar Outro Material
+                    </button>
                   </div>
-                  <div>
-                    <label className="block text-slate-600 font-semibold mb-0.5">Descrição do Item</label>
-                    <input
-                      type="text"
-                      placeholder="Ex: Parafuso Inox 316"
-                      value={materialDesc}
-                      onChange={e => setMaterialDesc(e.target.value)}
-                      className="w-full px-2.5 py-1.5 border border-slate-300 rounded bg-white"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-slate-600 font-semibold mb-0.5">Fornecedor / Fabricante</label>
-                    <input
-                      type="text"
-                      placeholder="Ex: Ciser / Wurth"
-                      value={materialSupplier}
-                      onChange={e => setMaterialSupplier(e.target.value)}
-                      className="w-full px-2.5 py-1.5 border border-slate-300 rounded bg-white"
-                    />
+
+                  <div className="space-y-2.5 max-h-[300px] overflow-y-auto pr-1">
+                    {materialsList.map((item, index) => (
+                      <div
+                        key={item.id}
+                        className="p-3 bg-white rounded-xl border border-blue-200 shadow-xs space-y-2"
+                      >
+                        <div className="flex items-center justify-between pb-1.5 border-b border-slate-100 text-[11px]">
+                          <span className="font-bold text-blue-900 bg-blue-50 px-2 py-0.5 rounded border border-blue-100">
+                            Material #{index + 1}
+                          </span>
+                          {materialsList.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveMaterialRow(item.id)}
+                              className="inline-flex items-center text-rose-600 hover:text-rose-800 text-[11px] font-medium hover:bg-rose-50 px-2 py-0.5 rounded transition-colors cursor-pointer"
+                              title="Remover este material"
+                            >
+                              <Trash2 className="w-3 h-3 mr-1" />
+                              Remover
+                            </button>
+                          )}
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 text-xs">
+                          <div className="sm:col-span-4">
+                            <label className="block text-slate-600 font-semibold mb-0.5 text-[11px]">
+                              Part Number / Código *
+                            </label>
+                            <input
+                              type="text"
+                              placeholder="Ex: FIX-M5X20-INX"
+                              value={item.code}
+                              onChange={e => handleUpdateMaterialRow(item.id, 'code', e.target.value)}
+                              className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg bg-white text-xs font-mono font-medium focus:border-blue-500 focus:outline-hidden"
+                            />
+                          </div>
+
+                          <div className="sm:col-span-8">
+                            <label className="block text-slate-600 font-semibold mb-0.5 text-[11px]">
+                              Descrição do Item
+                            </label>
+                            <input
+                              type="text"
+                              placeholder="Ex: Parafuso Allen Inox 316 M5"
+                              value={item.description}
+                              onChange={e => handleUpdateMaterialRow(item.id, 'description', e.target.value)}
+                              className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg bg-white text-xs focus:border-blue-500 focus:outline-hidden"
+                            />
+                          </div>
+
+                          <div className="sm:col-span-3">
+                            <label className="block text-slate-600 font-semibold mb-0.5 text-[11px]">
+                              Qtd. Necessária
+                            </label>
+                            <input
+                              type="number"
+                              min={1}
+                              value={item.quantity}
+                              onChange={e => handleUpdateMaterialRow(item.id, 'quantity', Number(e.target.value) || 1)}
+                              className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg bg-white text-xs focus:border-blue-500 focus:outline-hidden"
+                            />
+                          </div>
+
+                          <div className="sm:col-span-3">
+                            <label className="block text-slate-600 font-semibold mb-0.5 text-[11px]">
+                              Unidade
+                            </label>
+                            <select
+                              value={item.unit}
+                              onChange={e => handleUpdateMaterialRow(item.id, 'unit', e.target.value)}
+                              className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg bg-white text-xs focus:border-blue-500 focus:outline-hidden"
+                            >
+                              <option value="UN">UN (Unidade)</option>
+                              <option value="PC">PC (Peça)</option>
+                              <option value="KG">KG (Quilo)</option>
+                              <option value="M">M (Metro)</option>
+                              <option value="RL">RL (Rolo)</option>
+                              <option value="CJ">CJ (Conjunto)</option>
+                              <option value="LT">LT (Litro)</option>
+                            </select>
+                          </div>
+
+                          <div className="sm:col-span-6">
+                            <label className="block text-slate-600 font-semibold mb-0.5 text-[11px]">
+                              Fornecedor / Fabricante
+                            </label>
+                            <input
+                              type="text"
+                              placeholder="Ex: Ciser / Wurth"
+                              value={item.supplier}
+                              onChange={e => handleUpdateMaterialRow(item.id, 'supplier', e.target.value)}
+                              className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg bg-white text-xs focus:border-blue-500 focus:outline-hidden"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
               )}

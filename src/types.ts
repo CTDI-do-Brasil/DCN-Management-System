@@ -36,13 +36,16 @@ export interface MaterialItem {
   notes?: string;
 }
 
+export type ShiftType = '1º Turno' | '2º Turno' | '3º Turno' | 'Administrativo' | 'Comercial';
+
 export interface Technician {
   id: string;
   name: string;
   badge: string;
   department: string;
-  shift: '1º Turno' | '2º Turno' | '3º Turno' | 'Comercial';
+  shift: ShiftType;
   role: string;
+
   email?: string;
   phone?: string;
   active: boolean;

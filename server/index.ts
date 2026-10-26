@@ -88,9 +88,10 @@ app.post('/api/auth/login', async (req: Request, res: Response) => {
 
     if (!USER_LOGIN_REGEX.test(normalizedLogin)) {
       return res.status(400).json({
-        error: 'Formato de usuário inválido! Use NOME.SOBRENOME (ex: RODRIGO.BARRETO).'
+        error: 'Formato de usuário inválido! Use NOME.SOBRENOME (ex: JONATAS.MIRANDA).'
       });
     }
+
 
     if (!senha || typeof senha !== 'string') {
       return res.status(400).json({ error: 'Senha não informada.' });

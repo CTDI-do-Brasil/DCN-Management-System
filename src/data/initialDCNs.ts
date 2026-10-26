@@ -31,7 +31,7 @@ export const INITIAL_DCNS: DCN[] = [
     training: {
       id: 'trn-1',
       instructor: 'Eng. Carlos Eduardo Mendes',
-      targetAudience: 'Operadores de Montagem SMT e Inspetores de Qualidade',
+      targetAudience: 'Operadores de Montagem e Inspetores de Qualidade',
       department: 'Produção / Qualidade',
       estimatedHours: 2,
       scheduledDate: '2025-01-25',
@@ -45,10 +45,11 @@ export const INITIAL_DCNS: DCN[] = [
         'Registro na folha de processo F-ENG-089'
       ],
       attendeesList: [
-        { name: 'Marcos Vinícius Silva', badge: 'OP-4412', department: 'Montagem SMT', signedDate: '2025-01-26' },
-        { name: 'Fernanda Oliveira', badge: 'OP-4419', department: 'Montagem SMT', signedDate: '2025-01-26' },
+        { name: 'Marcos Vinícius Silva', badge: 'OP-4412', department: 'Produção', signedDate: '2025-01-26' },
+        { name: 'Fernanda Oliveira', badge: 'OP-4419', department: 'Produção', signedDate: '2025-01-26' },
         { name: 'Renato Guimarães', badge: 'IQ-1092', department: 'CQ Entrada', signedDate: '2025-01-26' }
       ],
+
       evidenceDoc: 'Lista_Presenca_DCN_089_Assinada.pdf'
     },
     implementationChecklist: [

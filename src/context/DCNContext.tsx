@@ -106,13 +106,22 @@ export const DCNProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const savedTechs = localStorage.getItem(TECHNICIANS_STORAGE_KEY);
     if (savedTechs) {
       try {
-        return JSON.parse(savedTechs);
+        const parsed = JSON.parse(savedTechs);
+        if (Array.isArray(parsed)) {
+          return parsed.map((t: Technician) => ({
+            ...t,
+            department: t.department === 'Montagem SMT' ? 'Produção' : t.department,
+            shift: (t.shift as string) === 'Comercial' ? 'Administrativo' : t.shift
+          }));
+
+        }
       } catch (e) {
         console.error('Failed to parse saved technicians from localStorage', e);
       }
     }
     return INITIAL_TECHNICIANS;
   });
+
 
   const [selectedDCN, setSelectedDCN] = useState<DCN | null>(null);
   const [filters, setFilters] = useState<FilterOptions>(defaultFilters);

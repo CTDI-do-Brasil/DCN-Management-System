@@ -849,8 +849,9 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
                           className="w-full py-1 px-2 text-xs border border-slate-300 rounded-md bg-white text-slate-700"
                         >
                           <option value="ALL">Todos Departamentos</option>
-                          <option value="Montagem SMT">Montagem SMT</option>
+                          <option value="Produção">Produção</option>
                           <option value="Qualidade CQ">Qualidade CQ</option>
+
                           <option value="Teste & Reparo">Teste & Reparo</option>
                           <option value="Manutenção & Automação">Manutenção & Automação</option>
                         </select>

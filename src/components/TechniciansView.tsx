@@ -29,7 +29,7 @@ import {
 } from 'lucide-react';
 import { useDCN } from '../context/DCNContext';
 import { useAuth } from '../context/AuthContext';
-import { Technician, DCN } from '../types';
+import { Technician, DCN, ShiftType } from '../types';
 import { formatDate } from '../utils/helpers';
 
 interface TechniciansViewProps {
@@ -68,15 +68,15 @@ export const TechniciansView: React.FC<TechniciansViewProps> = ({ onSelectDCN })
   const [formData, setFormData] = useState({
     name: '',
     badge: '',
-    department: 'Montagem SMT',
-    shift: '1º Turno' as '1º Turno' | '2º Turno' | '3º Turno' | 'Comercial',
+    department: 'Produção',
+    shift: '1º Turno' as ShiftType,
     role: '',
     email: '',
     phone: '',
     active: true,
-    skillsInput: '',
     notes: ''
   });
+
 
   const [formErrors, setFormErrors] = useState<{ [key: string]: string }>({});
 
@@ -111,8 +111,10 @@ export const TechniciansView: React.FC<TechniciansViewProps> = ({ onSelectDCN })
       }
 
       // Shift
-      if (shiftFilter !== 'ALL' && tech.shift !== shiftFilter) {
-        return false;
+      if (shiftFilter !== 'ALL') {
+        const matches = tech.shift === shiftFilter ||
+          (shiftFilter === 'Administrativo' && (tech.shift as string) === 'Comercial');
+        if (!matches) return false;
       }
 
       // Status
@@ -143,7 +145,6 @@ export const TechniciansView: React.FC<TechniciansViewProps> = ({ onSelectDCN })
       email: tech.email || '',
       phone: tech.phone || '',
       active: tech.active,
-      skillsInput: (tech.skills || []).join(', '),
       notes: tech.notes || ''
     });
     setFormErrors({});
@@ -156,13 +157,12 @@ export const TechniciansView: React.FC<TechniciansViewProps> = ({ onSelectDCN })
     setFormData({
       name: '',
       badge: `TEC-${Math.floor(1000 + Math.random() * 9000)}`,
-      department: 'Montagem SMT',
+      department: 'Produção',
       shift: '1º Turno',
       role: '',
       email: '',
       phone: '',
       active: true,
-      skillsInput: '',
       notes: ''
     });
     setFormErrors({});
@@ -183,11 +183,6 @@ export const TechniciansView: React.FC<TechniciansViewProps> = ({ onSelectDCN })
       return;
     }
 
-    const skills = formData.skillsInput
-      .split(',')
-      .map(s => s.trim())
-      .filter(Boolean);
-
     if (editingTech) {
       updateTechnician(editingTech.id, {
         name: formData.name.trim(),
@@ -198,7 +193,7 @@ export const TechniciansView: React.FC<TechniciansViewProps> = ({ onSelectDCN })
         email: formData.email.trim() || undefined,
         phone: formData.phone.trim() || undefined,
         active: formData.active,
-        skills,
+        skills: editingTech.skills || [],
         notes: formData.notes.trim() || undefined
       });
     } else {
@@ -211,10 +206,11 @@ export const TechniciansView: React.FC<TechniciansViewProps> = ({ onSelectDCN })
         email: formData.email.trim() || undefined,
         phone: formData.phone.trim() || undefined,
         active: formData.active,
-        skills,
+        skills: [],
         notes: formData.notes.trim() || undefined
       });
     }
+
 
     setIsNewModalOpen(false);
     setEditingTech(null);
@@ -393,10 +389,9 @@ export const TechniciansView: React.FC<TechniciansViewProps> = ({ onSelectDCN })
               className="w-full py-1.5 px-3 text-xs border border-slate-300 rounded-lg bg-white text-slate-700 font-medium"
             >
               <option value="ALL">Turno: Todos</option>
-              <option value="1º Turno">1º Turno (Manhã)</option>
-              <option value="2º Turno">2º Turno (Tarde/Noite)</option>
-              <option value="3º Turno">3º Turno (Madrugada)</option>
-              <option value="Comercial">Comercial / Administrativo</option>
+              <option value="1º Turno">1º Turno (07:00 às 16:48)</option>
+              <option value="2º Turno">2º Turno (16:48 às 02:10)</option>
+              <option value="Administrativo">Administrativo (08:00 às 17:48)</option>
             </select>
           </div>
 
@@ -459,8 +454,8 @@ export const TechniciansView: React.FC<TechniciansViewProps> = ({ onSelectDCN })
                   <th className="py-3 px-4 text-left">Departamento & Função</th>
                   <th className="py-3 px-4 text-left">Turno & Status</th>
                   <th className="py-3 px-4 text-left">DCNs Treinadas</th>
-                  <th className="py-3 px-4 text-left">Competências</th>
                   <th className="py-3 px-4 text-right">Ações</th>
+
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 font-normal">
@@ -549,27 +544,8 @@ export const TechniciansView: React.FC<TechniciansViewProps> = ({ onSelectDCN })
                         </div>
                       </td>
 
-                      {/* Skills Tags */}
-                      <td className="py-3.5 px-4">
-                        <div className="flex flex-wrap gap-1 max-w-xs">
-                          {tech.skills && tech.skills.length > 0 ? (
-                            tech.skills.slice(0, 2).map((skill, idx) => (
-                              <span key={idx} className="px-1.5 py-0.5 bg-slate-50 text-slate-600 rounded text-[10px] border border-slate-200">
-                                {skill}
-                              </span>
-                            ))
-                          ) : (
-                            <span className="text-[11px] text-slate-400 italic">Nenhuma informada</span>
-                          )}
-                          {tech.skills && tech.skills.length > 2 && (
-                            <span className="px-1.5 py-0.5 bg-slate-100 text-slate-500 rounded text-[10px] font-medium">
-                              +{tech.skills.length - 2}
-                            </span>
-                          )}
-                        </div>
-                      </td>
-
                       {/* Actions */}
+
                       <td className="py-3.5 px-4 text-right whitespace-nowrap">
                         <div className="flex items-center justify-end space-x-1.5">
                           <button
@@ -701,13 +677,14 @@ export const TechniciansView: React.FC<TechniciansViewProps> = ({ onSelectDCN })
                     onChange={e => setFormData({ ...formData, department: e.target.value })}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white text-slate-700"
                   >
-                    <option value="Montagem SMT">Montagem SMT</option>
+                    <option value="Produção">Produção</option>
                     <option value="Qualidade CQ">Qualidade CQ</option>
                     <option value="Teste & Reparo">Teste & Reparo</option>
                     <option value="Manutenção & Automação">Manutenção & Automação</option>
                     <option value="Engenharia de Processos">Engenharia de Processos</option>
                     <option value="Almoxarifado & Logística">Almoxarifado & Logística</option>
                   </select>
+
                 </div>
 
                 <div>
@@ -716,13 +693,12 @@ export const TechniciansView: React.FC<TechniciansViewProps> = ({ onSelectDCN })
                   </label>
                   <select
                     value={formData.shift}
-                    onChange={e => setFormData({ ...formData, shift: e.target.value as any })}
+                    onChange={e => setFormData({ ...formData, shift: e.target.value as ShiftType })}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white text-slate-700"
                   >
-                    <option value="1º Turno">1º Turno (06:00 às 14:20)</option>
-                    <option value="2º Turno">2º Turno (14:20 às 22:40)</option>
-                    <option value="3º Turno">3º Turno (22:40 às 06:00)</option>
-                    <option value="Comercial">Comercial (08:00 às 17:48)</option>
+                    <option value="1º Turno">1º Turno (07:00 às 16:48)</option>
+                    <option value="2º Turno">2º Turno (16:48 às 02:10)</option>
+                    <option value="Administrativo">Administrativo (08:00 às 17:48)</option>
                   </select>
                 </div>
 
@@ -771,25 +747,9 @@ export const TechniciansView: React.FC<TechniciansViewProps> = ({ onSelectDCN })
                 </div>
               </div>
 
-              {/* Competências / Skills */}
-              <div>
-                <label className="block font-semibold text-slate-700 mb-1">
-                  Competências / Habilidades (separadas por vírgula)
-                </label>
-                <input
-                  type="text"
-                  placeholder="Ex: Solda IPC-A-610, Calibração, Leitura DWG, AOI"
-                  value={formData.skillsInput}
-                  onChange={e => setFormData({ ...formData, skillsInput: e.target.value })}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white"
-                />
-                <p className="text-[10px] text-slate-400 mt-0.5">
-                  Facilita o filtro para encontrar técnicos qualificados para determinados tipos de DCN.
-                </p>
-              </div>
-
               {/* Observações */}
               <div>
+
                 <label className="block font-semibold text-slate-700 mb-1">
                   Observações & Histórico Interno
                 </label>
