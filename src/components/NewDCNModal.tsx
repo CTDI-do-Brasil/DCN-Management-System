@@ -103,17 +103,7 @@ export const NewDCNModal: React.FC<NewDCNModalProps> = ({ onClose, onSuccess }) 
   const [trainingHours, setTrainingHours] = useState(2);
 
   // Attachments
-  const [attachments, setAttachments] = useState<DCNAttachment[]>([
-    {
-      id: 'att-init-1',
-      name: 'DCN_Documento_Oficial_Aprovado.pdf',
-      type: 'PDF',
-      size: '2.4 MB',
-      category: 'PDF_OFICIAL',
-      uploadedAt: todayStr,
-      uploadedBy: currentEngineer.name
-    }
-  ]);
+  const [attachments, setAttachments] = useState<DCNAttachment[]>([]);
 
   const [simulatedFileName, setSimulatedFileName] = useState('');
 

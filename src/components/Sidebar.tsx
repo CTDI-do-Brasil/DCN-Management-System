@@ -25,7 +25,7 @@ import { exportDCNsToCSV } from '../utils/helpers';
 import { DCNLogo } from './DCNLogo';
 import { CTDILogo } from './CTDILogo';
 
-export type AppNavTab = 'dashboard' | 'dcns' | 'materials' | 'trainings' | 'technicians' | 'metrics' | 'search';
+export type AppNavTab = 'dashboard' | 'dcns' | 'materials' | 'trainings' | 'technicians' | 'users' | 'metrics' | 'search';
 
 interface SidebarProps {
   activeTab: AppNavTab;
@@ -45,7 +45,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onCloseMobile
 }) => {
   const { dcns, filteredDCNs, stats, resetToDefaultData, technicians } = useDCN();
-  const { currentUser, logout, canCreateDCN, roleBadge, userInitials, isOperator } = useAuth();
+  const { currentUser, logout, canCreateDCN, roleBadge, userInitials, isAdmin } = useAuth();
 
 
   const navItems = [
@@ -82,6 +82,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
       badge: technicians.length,
       badgeColor: 'bg-indigo-400 text-slate-900 font-bold'
     },
+    ...(isAdmin
+      ? [
+          {
+            id: 'users' as const,
+            label: 'Gestão de Usuários',
+            icon: ShieldCheck,
+            badge: 'ADMIN',
+            badgeColor: 'bg-rose-400 text-slate-950 font-extrabold'
+          }
+        ]
+      : []),
     {
       id: 'metrics' as const,
       label: 'Métricas & Dashboard',

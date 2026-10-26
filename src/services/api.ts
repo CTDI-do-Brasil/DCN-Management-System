@@ -1,12 +1,45 @@
-import { DCN, Technician, MaterialItem, TrainingRecord, DCNAttachment, ImplementationChecklist, User } from '../types';
-import { INITIAL_USERS } from '../data/initialUsers';
+import { DCN, Technician, MaterialItem, TrainingRecord, DCNAttachment, ImplementationChecklist, User, UserRole } from '../types';
+import { INITIAL_USERS, LocalAuthUser } from '../data/initialUsers';
 
 const API_BASE = '/api';
+const LOCAL_USERS_STORAGE_KEY = 'dcn_users_local_cache_v1';
+
+function getLocalCachedUsers(): LocalAuthUser[] {
+  try {
+    const raw = localStorage.getItem(LOCAL_USERS_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed;
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return [...INITIAL_USERS];
+}
+
+function saveLocalCachedUsers(users: LocalAuthUser[]) {
+  try {
+    localStorage.setItem(LOCAL_USERS_STORAGE_KEY, JSON.stringify(users));
+  } catch {
+    // ignore
+  }
+}
 
 async function handleResponse<T>(res: Response): Promise<T> {
   if (!res.ok) {
-    const errorText = await res.text();
-    throw new Error(`API Error [${res.status}]: ${errorText}`);
+    let errorMessage = `API Error [${res.status}]`;
+    try {
+      const errData = await res.json();
+      if (errData?.error) {
+        errorMessage = errData.error;
+      }
+    } catch {
+      const errorText = await res.text();
+      if (errorText) errorMessage = errorText;
+    }
+    throw new Error(errorMessage);
   }
   return res.json();
 }
@@ -48,7 +81,8 @@ export const api = {
       // Fallback offline / contingência se o servidor estiver indisponível
       console.warn('[Auth API] Servidor indisponível. Acionando validação offline:', networkOrServerError.message);
       const normalized = (login || '').trim().toUpperCase();
-      const offlineUser = INITIAL_USERS.find(u => u.login.toUpperCase() === normalized);
+      const localUsers = getLocalCachedUsers();
+      const offlineUser = localUsers.find(u => u.login.toUpperCase() === normalized);
 
       if (!offlineUser) {
         throw new Error(`[Contingência Offline] Usuário "${normalized}" não encontrado no cache do sistema.`);
@@ -71,9 +105,103 @@ export const api = {
   async getUsers(): Promise<User[]> {
     try {
       const res = await fetch(`${API_BASE}/users`);
-      return handleResponse<User[]>(res);
+      return await handleResponse<User[]>(res);
     } catch {
-      return INITIAL_USERS.map(({ senha: _, ...u }) => u);
+      return getLocalCachedUsers().map(({ senha: _, ...u }) => u);
+    }
+  },
+
+  async createUser(payload: { login: string; nome: string; role: UserRole; senha: string }): Promise<User> {
+    try {
+      const res = await fetch(`${API_BASE}/users`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      return await handleResponse<User>(res);
+    } catch (err: any) {
+      if (
+        err.message?.includes('Já existe') ||
+        err.message?.includes('Formato de login') ||
+        err.message?.includes('obrigatório') ||
+        err.message?.includes('senha válida')
+      ) {
+        throw err;
+      }
+      // Contingência offline se backend não estiver rodando localmente
+      const localUsers = getLocalCachedUsers();
+      const normalizedLogin = payload.login.trim().toUpperCase();
+      if (localUsers.some(u => u.login.toUpperCase() === normalizedLogin)) {
+        throw new Error(`Já existe um usuário cadastrado com o login "${normalizedLogin}".`);
+      }
+      const now = new Date().toISOString();
+      const newUser: LocalAuthUser = {
+        id: `user-${Date.now()}`,
+        login: normalizedLogin,
+        nome: payload.nome.trim(),
+        role: payload.role,
+        senha: payload.senha,
+        createdAt: now,
+        updatedAt: now
+      };
+      saveLocalCachedUsers([...localUsers, newUser]);
+      const { senha: _, ...safeUser } = newUser;
+      return safeUser;
+    }
+  },
+
+  async updateUser(id: string, payload: { login?: string; nome?: string; role?: UserRole; senha?: string }): Promise<User> {
+    try {
+      const res = await fetch(`${API_BASE}/users/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      return await handleResponse<User>(res);
+    } catch (err: any) {
+      if (
+        err.message?.includes('já está em uso') ||
+        err.message?.includes('Formato de login') ||
+        err.message?.includes('único Administrador') ||
+        err.message?.includes('nova senha')
+      ) {
+        throw err;
+      }
+      const localUsers = getLocalCachedUsers();
+      const idx = localUsers.findIndex(u => u.id === id);
+      if (idx === -1) throw new Error('Usuário não encontrado.');
+      const updatedUser: LocalAuthUser = {
+        ...localUsers[idx],
+        login: payload.login ? payload.login.trim().toUpperCase() : localUsers[idx].login,
+        nome: payload.nome ? payload.nome.trim() : localUsers[idx].nome,
+        role: payload.role || localUsers[idx].role,
+        senha: payload.senha && payload.senha.trim() ? payload.senha : localUsers[idx].senha,
+        updatedAt: new Date().toISOString()
+      };
+      localUsers[idx] = updatedUser;
+      saveLocalCachedUsers(localUsers);
+      const { senha: _, ...safeUser } = updatedUser;
+      return safeUser;
+    }
+  },
+
+  async deleteUser(id: string): Promise<{ success: boolean }> {
+    try {
+      const res = await fetch(`${API_BASE}/users/${id}`, {
+        method: 'DELETE',
+      });
+      return await handleResponse<{ success: boolean }>(res);
+    } catch (err: any) {
+      if (err.message?.includes('único Administrador')) {
+        throw err;
+      }
+      const localUsers = getLocalCachedUsers();
+      const target = localUsers.find(u => u.id === id);
+      if (target?.role === 'ADMIN' && localUsers.filter(u => u.role === 'ADMIN').length <= 1) {
+        throw new Error('Não é possível excluir o único Administrador do sistema.');
+      }
+      saveLocalCachedUsers(localUsers.filter(u => u.id !== id));
+      return { success: true };
     }
   },
 

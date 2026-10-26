@@ -11,6 +11,7 @@ import { AuditReportModal } from './components/AuditReportModal';
 import { MaterialsOverview } from './components/MaterialsOverview';
 import { TrainingMatrix } from './components/TrainingMatrix';
 import { TechniciansView } from './components/TechniciansView';
+import { UsersManagementView } from './components/UsersManagementView';
 import { SearchExportView } from './components/SearchExportView';
 import { LoginModal } from './components/LoginModal';
 
@@ -123,6 +124,11 @@ function AppContent() {
             <TechniciansView
               onSelectDCN={handleSelectDCN}
             />
+          )}
+
+          {/* Tab 5.1: Gestão de Usuários & Acessos (RBAC - Admin) */}
+          {activeTab === 'users' && (
+            <UsersManagementView />
           )}
 
           {/* Tab 6: Métricas & Dashboard (Deep Analytics) */}

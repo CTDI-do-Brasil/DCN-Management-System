@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useMemo, ReactNode } from 'react';
 import { DCN, DCNStatus, FilterOptions, MaterialItem, PriorityLevel, TrainingRecord, DCNAttachment, ImplementationChecklist, Technician, TrainingAttendee } from '../types';
-import { INITIAL_DCNS } from '../data/initialDCNs';
-import { INITIAL_TECHNICIANS } from '../data/initialTechnicians';
+import { INITIAL_DCNS, LEGACY_DEMO_DCN_IDS, LEGACY_DEMO_DCN_NUMBERS } from '../data/initialDCNs';
+import { INITIAL_TECHNICIANS, LEGACY_DEMO_TECH_IDS, LEGACY_DEMO_TECH_BADGES } from '../data/initialTechnicians';
 import confetti from 'canvas-confetti';
 import { api } from '../services/api';
 import { useAuth } from './AuthContext';
@@ -72,8 +72,10 @@ interface DCNContextType {
   resetToDefaultData: () => void;
 }
 
-const STORAGE_KEY = 'dcn_control_center_data_v1';
-const TECHNICIANS_STORAGE_KEY = 'dcn_technicians_data_v1';
+const STORAGE_KEY = 'dcn_control_center_data_v2';
+const TECHNICIANS_STORAGE_KEY = 'dcn_technicians_data_v2';
+const LEGACY_STORAGE_KEY = 'dcn_control_center_data_v1';
+const LEGACY_TECHNICIANS_STORAGE_KEY = 'dcn_technicians_data_v1';
 
 const defaultFilters: FilterOptions = {
   search: '',
@@ -91,33 +93,47 @@ const DCNContext = createContext<DCNContextType | undefined>(undefined);
 
 export const DCNProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [dcns, setDcns] = useState<DCN[]>(() => {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch (e) {
-        console.error('Failed to parse saved DCNs from localStorage', e);
+    try {
+      localStorage.removeItem(LEGACY_STORAGE_KEY);
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          return parsed.filter(
+            (d: DCN) =>
+              !LEGACY_DEMO_DCN_IDS.includes(d.id) &&
+              !LEGACY_DEMO_DCN_NUMBERS.includes(d.dcnNumber)
+          );
+        }
       }
+    } catch (e) {
+      console.error('Failed to parse saved DCNs from localStorage', e);
     }
     return INITIAL_DCNS;
   });
 
   const [technicians, setTechnicians] = useState<Technician[]>(() => {
-    const savedTechs = localStorage.getItem(TECHNICIANS_STORAGE_KEY);
-    if (savedTechs) {
-      try {
+    try {
+      localStorage.removeItem(LEGACY_TECHNICIANS_STORAGE_KEY);
+      const savedTechs = localStorage.getItem(TECHNICIANS_STORAGE_KEY);
+      if (savedTechs) {
         const parsed = JSON.parse(savedTechs);
         if (Array.isArray(parsed)) {
-          return parsed.map((t: Technician) => ({
-            ...t,
-            department: t.department === 'Montagem SMT' ? 'Produção' : t.department,
-            shift: (t.shift as string) === 'Comercial' ? 'Administrativo' : t.shift
-          }));
-
+          return parsed
+            .filter(
+              (t: Technician) =>
+                !LEGACY_DEMO_TECH_IDS.includes(t.id) &&
+                !LEGACY_DEMO_TECH_BADGES.includes(t.badge)
+            )
+            .map((t: Technician) => ({
+              ...t,
+              department: t.department === 'Montagem SMT' ? 'Produção' : t.department,
+              shift: (t.shift as string) === 'Comercial' ? 'Administrativo' : t.shift
+            }));
         }
-      } catch (e) {
-        console.error('Failed to parse saved technicians from localStorage', e);
       }
+    } catch (e) {
+      console.error('Failed to parse saved technicians from localStorage', e);
     }
     return INITIAL_TECHNICIANS;
   });
@@ -129,11 +145,11 @@ export const DCNProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const { currentUser } = useAuth();
 
   const currentEngineer = useMemo(() => ({
-    name: currentUser?.nome || 'Carlos Eduardo Mendes',
+    name: currentUser?.nome || 'Jonatas Miranda',
     role: currentUser?.role === 'ADMIN' 
       ? 'Administrador do Sistema' 
       : (currentUser?.role === 'ENGINEER' ? 'Engenharia de Processos & Qualidade' : 'Operador de Produção'),
-    email: currentUser ? `${currentUser.login.toLowerCase()}@ctdi.com` : 'carlos.mendes@ctdi.com'
+    email: currentUser ? `${currentUser.login.toLowerCase()}@ctdi.com` : 'jonatas.miranda@ctdi.com'
   }), [currentUser]);
 
 
@@ -143,6 +159,8 @@ export const DCNProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       const updatedSelected = dcns.find(d => d.id === selectedDCN.id);
       if (updatedSelected) {
         setSelectedDCN(updatedSelected);
+      } else {
+        setSelectedDCN(null);
       }
     }
   }, [dcns]);
@@ -161,11 +179,17 @@ export const DCNProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           api.getTechnicians()
         ]);
         if (isMounted) {
-          if (Array.isArray(remoteDCNs) && remoteDCNs.length > 0) {
-            setDcns(remoteDCNs);
+          if (Array.isArray(remoteDCNs)) {
+            const cleanDCNs = remoteDCNs.filter(
+              d => !LEGACY_DEMO_DCN_IDS.includes(d.id) && !LEGACY_DEMO_DCN_NUMBERS.includes(d.dcnNumber)
+            );
+            setDcns(cleanDCNs);
           }
-          if (Array.isArray(remoteTechs) && remoteTechs.length > 0) {
-            setTechnicians(remoteTechs);
+          if (Array.isArray(remoteTechs)) {
+            const cleanTechs = remoteTechs.filter(
+              t => !LEGACY_DEMO_TECH_IDS.includes(t.id) && !LEGACY_DEMO_TECH_BADGES.includes(t.badge)
+            );
+            setTechnicians(cleanTechs);
           }
         }
       } catch {
@@ -185,9 +209,9 @@ export const DCNProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setTechnicians(INITIAL_TECHNICIANS);
     localStorage.removeItem(STORAGE_KEY);
     localStorage.removeItem(TECHNICIANS_STORAGE_KEY);
-    if (selectedDCN) {
-      setSelectedDCN(INITIAL_DCNS[0] || null);
-    }
+    localStorage.removeItem(LEGACY_STORAGE_KEY);
+    localStorage.removeItem(LEGACY_TECHNICIANS_STORAGE_KEY);
+    setSelectedDCN(null);
   };
 
   // Filtered DCNs

@@ -38,6 +38,7 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({
     materials: 'Controle de Materiais',
     trainings: 'Matriz de Treinamentos',
     technicians: 'Cadastro de Técnicos & Qualidade',
+    users: 'Gestão de Usuários & Acessos',
     metrics: 'Métricas & Dashboard',
     search: 'Consulta & Exportação'
   };

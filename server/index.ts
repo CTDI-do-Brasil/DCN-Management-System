@@ -15,6 +15,8 @@ import {
   minioClient
 } from './minio';
 import { INITIAL_USERS } from '../src/data/initialUsers';
+import { LEGACY_DEMO_DCN_IDS, LEGACY_DEMO_DCN_NUMBERS } from '../src/data/initialDCNs';
+import { LEGACY_DEMO_TECH_IDS, LEGACY_DEMO_TECH_BADGES } from '../src/data/initialTechnicians';
 
 dotenv.config();
 
@@ -98,10 +100,31 @@ app.post('/api/auth/login', async (req: Request, res: Response) => {
     }
 
     let foundUser: any = null;
+    let dbAvailable = false;
 
     // 1. Tentar buscar no PostgreSQL
     try {
       if ((prisma as any).user) {
+        const userCount = await (prisma as any).user.count();
+        dbAvailable = true;
+
+        // Se a tabela de usuários estiver vazia, garante carga inicial
+        if (userCount === 0) {
+          for (const u of INITIAL_USERS) {
+            await (prisma as any).user.upsert({
+              where: { login: u.login },
+              update: {},
+              create: {
+                id: u.id,
+                login: u.login,
+                nome: u.nome,
+                role: u.role,
+                senha: u.senha
+              }
+            });
+          }
+        }
+
         foundUser = await (prisma as any).user.findUnique({
           where: { login: normalizedLogin }
         });
@@ -110,8 +133,8 @@ app.post('/api/auth/login', async (req: Request, res: Response) => {
       console.warn('[Auth Server] Banco de dados offline/indisponível. Usando contingência:', dbError.message);
     }
 
-    // 2. Fallback offline/seed caso banco não responda ou usuário não esteja no banco
-    if (!foundUser) {
+    // 2. Fallback offline apenas caso o banco de dados não responda
+    if (!dbAvailable && !foundUser) {
       foundUser = INITIAL_USERS.find(
         u => u.login.toUpperCase() === normalizedLogin
       );
@@ -157,8 +180,26 @@ app.post('/api/auth/login', async (req: Request, res: Response) => {
 app.get('/api/users', async (_req: Request, res: Response) => {
   try {
     let usersList: any[] = [];
+    let dbAvailable = false;
     try {
       if ((prisma as any).user) {
+        const count = await (prisma as any).user.count();
+        dbAvailable = true;
+        if (count === 0) {
+          for (const u of INITIAL_USERS) {
+            await (prisma as any).user.upsert({
+              where: { login: u.login },
+              update: {},
+              create: {
+                id: u.id,
+                login: u.login,
+                nome: u.nome,
+                role: u.role,
+                senha: u.senha
+              }
+            });
+          }
+        }
         usersList = await (prisma as any).user.findMany({
           select: {
             id: true,
@@ -175,13 +216,188 @@ app.get('/api/users', async (_req: Request, res: Response) => {
       // DB offline, use INITIAL_USERS
     }
 
-    if (!usersList || usersList.length === 0) {
+    if (!dbAvailable && (!usersList || usersList.length === 0)) {
       usersList = INITIAL_USERS.map(({ senha, ...u }) => u);
     }
 
     res.json(usersList);
   } catch (error: any) {
     res.status(500).json({ error: 'Falha ao buscar usuários', details: error.message });
+  }
+});
+
+// POST /api/users - Criar novo usuário no PostgreSQL
+app.post('/api/users', async (req: Request, res: Response) => {
+  try {
+    const { login, nome, role, senha } = req.body;
+
+    if (!login || typeof login !== 'string') {
+      return res.status(400).json({ error: 'O login do usuário é obrigatório.' });
+    }
+
+    const normalizedLogin = login.trim().toUpperCase();
+    if (!USER_LOGIN_REGEX.test(normalizedLogin)) {
+      return res.status(400).json({
+        error: 'Formato de login inválido! Utilize NOME.SOBRENOME (ex: JOAO.SILVA).'
+      });
+    }
+
+    if (!nome || typeof nome !== 'string' || !nome.trim()) {
+      return res.status(400).json({ error: 'O nome completo do usuário é obrigatório.' });
+    }
+
+    const validRoles = ['ADMIN', 'ENGINEER', 'OPERATOR'];
+    const normalizedRole = validRoles.includes(role) ? role : 'OPERATOR';
+
+    if (!senha || typeof senha !== 'string' || senha.trim().length < 3) {
+      return res.status(400).json({ error: 'Informe uma senha válida (mínimo 3 caracteres).' });
+    }
+
+    const existing = await (prisma as any).user.findUnique({
+      where: { login: normalizedLogin }
+    });
+
+    if (existing) {
+      return res.status(409).json({
+        error: `Já existe um usuário cadastrado com o login "${normalizedLogin}".`
+      });
+    }
+
+    const created = await (prisma as any).user.create({
+      data: {
+        login: normalizedLogin,
+        nome: nome.trim(),
+        role: normalizedRole,
+        senha: senha
+      },
+      select: {
+        id: true,
+        login: true,
+        nome: true,
+        role: true,
+        createdAt: true,
+        updatedAt: true
+      }
+    });
+
+    res.status(201).json(created);
+  } catch (error: any) {
+    console.error('[Create User Error]', error);
+    res.status(500).json({ error: 'Falha ao criar usuário no banco de dados', details: error.message });
+  }
+});
+
+// PUT /api/users/:id - Atualizar dados, perfil ou senha do usuário no PostgreSQL
+app.put('/api/users/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { login, nome, role, senha } = req.body;
+
+    const existing = await (prisma as any).user.findUnique({
+      where: { id }
+    });
+
+    if (!existing) {
+      return res.status(404).json({ error: 'Usuário não encontrado no banco de dados.' });
+    }
+
+    let normalizedLogin = existing.login;
+    if (login && typeof login === 'string') {
+      normalizedLogin = login.trim().toUpperCase();
+      if (!USER_LOGIN_REGEX.test(normalizedLogin)) {
+        return res.status(400).json({
+          error: 'Formato de login inválido! Utilize NOME.SOBRENOME (ex: JOAO.SILVA).'
+        });
+      }
+
+      if (normalizedLogin !== existing.login) {
+        const duplicate = await (prisma as any).user.findUnique({
+          where: { login: normalizedLogin }
+        });
+        if (duplicate) {
+          return res.status(409).json({
+            error: `O login "${normalizedLogin}" já está em uso por outro usuário.`
+          });
+        }
+      }
+    }
+
+    const validRoles = ['ADMIN', 'ENGINEER', 'OPERATOR'];
+    const updatedRole = role && validRoles.includes(role) ? role : existing.role;
+
+    // Impedir rebaixamento do último Administrador
+    if (existing.role === 'ADMIN' && updatedRole !== 'ADMIN') {
+      const adminCount = await (prisma as any).user.count({ where: { role: 'ADMIN' } });
+      if (adminCount <= 1) {
+        return res.status(400).json({
+          error: 'Não é permitido alterar o perfil do único Administrador ativo do sistema.'
+        });
+      }
+    }
+
+    const updateData: any = {
+      login: normalizedLogin,
+      nome: nome && typeof nome === 'string' && nome.trim() ? nome.trim() : existing.nome,
+      role: updatedRole
+    };
+
+    if (senha && typeof senha === 'string' && senha.trim().length > 0) {
+      if (senha.trim().length < 3) {
+        return res.status(400).json({ error: 'A nova senha deve ter pelo menos 3 caracteres.' });
+      }
+      updateData.senha = senha;
+    }
+
+    const updated = await (prisma as any).user.update({
+      where: { id },
+      data: updateData,
+      select: {
+        id: true,
+        login: true,
+        nome: true,
+        role: true,
+        createdAt: true,
+        updatedAt: true
+      }
+    });
+
+    res.json(updated);
+  } catch (error: any) {
+    console.error('[Update User Error]', error);
+    res.status(500).json({ error: 'Falha ao atualizar usuário no banco de dados', details: error.message });
+  }
+});
+
+// DELETE /api/users/:id - Excluir usuário do PostgreSQL
+app.delete('/api/users/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    const existing = await (prisma as any).user.findUnique({
+      where: { id }
+    });
+
+    if (!existing) {
+      return res.status(404).json({ error: 'Usuário não encontrado.' });
+    }
+
+    if (existing.role === 'ADMIN') {
+      const adminCount = await (prisma as any).user.count({ where: { role: 'ADMIN' } });
+      if (adminCount <= 1) {
+        return res.status(400).json({
+          error: 'Não é possível excluir o único Administrador do sistema.'
+        });
+      }
+    }
+
+    await (prisma as any).user.delete({
+      where: { id }
+    });
+
+    res.json({ success: true, message: `Usuário ${existing.login} excluído com sucesso.` });
+  } catch (error: any) {
+    console.error('[Delete User Error]', error);
+    res.status(500).json({ error: 'Falha ao excluir usuário do banco de dados', details: error.message });
   }
 });
 
@@ -711,8 +927,61 @@ if (fs.existsSync(distPath)) {
   });
 }
 
+async function syncDatabaseOnStartup() {
+  try {
+    // 1. Remover DCNs e Técnicos de simulação legados caso existam no banco
+    const deletedDCNs = await prisma.dCN.deleteMany({
+      where: {
+        OR: [
+          { id: { in: LEGACY_DEMO_DCN_IDS } },
+          { dcnNumber: { in: LEGACY_DEMO_DCN_NUMBERS } }
+        ]
+      }
+    });
+    if (deletedDCNs.count > 0) {
+      console.log(`[Startup Cleanup] ${deletedDCNs.count} DCN(s) de simulação removida(s) do PostgreSQL.`);
+    }
+
+    const deletedTechs = await prisma.technician.deleteMany({
+      where: {
+        OR: [
+          { id: { in: LEGACY_DEMO_TECH_IDS } },
+          { badge: { in: LEGACY_DEMO_TECH_BADGES } }
+        ]
+      }
+    });
+    if (deletedTechs.count > 0) {
+      console.log(`[Startup Cleanup] ${deletedTechs.count} técnico(s) de simulação removido(s) do PostgreSQL.`);
+    }
+
+    // 2. Garantir usuários iniciais se a tabela de usuários estiver vazia
+    if ((prisma as any).user) {
+      const userCount = await (prisma as any).user.count();
+      if (userCount === 0) {
+        for (const u of INITIAL_USERS) {
+          await (prisma as any).user.upsert({
+            where: { login: u.login },
+            update: {},
+            create: {
+              id: u.id,
+              login: u.login,
+              nome: u.nome,
+              role: u.role,
+              senha: u.senha
+            }
+          });
+        }
+        console.log(`[Startup Users] ${INITIAL_USERS.length} usuários iniciais provisionados no PostgreSQL.`);
+      }
+    }
+  } catch (err: any) {
+    console.warn(`[Startup Sync] Aviso ao sincronizar banco de dados na inicialização: ${err.message}`);
+  }
+}
+
 app.listen(PORT, () => {
   console.log(`[DCN API Server] Running on http://localhost:${PORT}`);
+  syncDatabaseOnStartup();
   initMinio().catch(err => {
     console.warn(`[MinIO] Não foi possível conectar ao inicializar: ${err.message}`);
   });
