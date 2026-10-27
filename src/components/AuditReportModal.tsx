@@ -128,7 +128,9 @@ export const AuditReportModal: React.FC<AuditReportModalProps> = ({ initialDCNId
               </div>
 
               <div className="text-right text-xs">
-                <p className="font-mono font-bold text-slate-900">DOC: <strong>{dcn.dcnNumber}</strong></p>
+                <p className="font-mono font-bold text-slate-900">
+                  DOC: <strong>{dcn.dcnNumber}</strong>{dcn.revision ? ` • REV: ${dcn.revision}` : ''}
+                </p>
                 <p className="text-[10px] text-slate-500">ID do Sistema: {dcn.id}</p>
                 <p className="text-[10px] text-slate-500">Conformidade: ISO 9001:2015 / IATF 8.5.6</p>
               </div>

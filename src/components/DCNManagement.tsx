@@ -292,9 +292,16 @@ export const DCNManagement: React.FC<DCNManagementProps> = ({ onSelectDCN, onOpe
                         {/* ID / DCN Number */}
                         <td className="py-3.5 px-4 whitespace-nowrap">
                           <div className="flex flex-col">
-                            <span className="font-mono font-bold text-slate-900 text-xs group-hover:text-indigo-600">
-                              {dcn.dcnNumber}
-                            </span>
+                            <div className="flex items-center space-x-1.5">
+                              <span className="font-mono font-bold text-slate-900 text-xs group-hover:text-indigo-600">
+                                {dcn.dcnNumber}
+                              </span>
+                              {dcn.revision && (
+                                <span className="font-mono text-[10px] font-bold px-1.5 py-0.2 rounded bg-indigo-50 text-indigo-700 border border-indigo-200">
+                                  Rev. {dcn.revision}
+                                </span>
+                              )}
+                            </div>
                             <span className="text-[10px] text-slate-400 font-mono">
                               {dcn.id} • Rec: {formatDate(dcn.receivedDate)}
                             </span>
@@ -478,9 +485,16 @@ export const DCNManagement: React.FC<DCNManagementProps> = ({ onSelectDCN, onOpe
                           className="bg-white p-3 rounded-lg border border-slate-200 shadow-xs hover:border-indigo-400 hover:shadow-md transition-all cursor-pointer space-y-2 group"
                         >
                           <div className="flex items-center justify-between">
-                            <span className="font-mono font-bold text-[11px] text-indigo-700">
-                              {dcn.dcnNumber}
-                            </span>
+                            <div className="flex items-center space-x-1">
+                              <span className="font-mono font-bold text-[11px] text-indigo-700">
+                                {dcn.dcnNumber}
+                              </span>
+                              {dcn.revision && (
+                                <span className="font-mono text-[9px] font-bold px-1 py-0.2 rounded bg-indigo-50 text-indigo-700 border border-indigo-200">
+                                  Rev. {dcn.revision}
+                                </span>
+                              )}
+                            </div>
                             <span className={`px-1.5 py-0.2 rounded text-[9px] font-bold border ${priorityConfig.badgeBg}`}>
                               {priorityConfig.label}
                             </span>

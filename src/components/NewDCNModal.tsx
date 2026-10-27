@@ -86,7 +86,8 @@ export const NewDCNModal: React.FC<NewDCNModalProps> = ({ onClose, onSuccess }) 
   const defaultDueDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
   // Required Fields
-  const [dcnNumber, setDcnNumber] = useState(`DCN-BR-${new Date().getFullYear()}-${Math.floor(100 + Math.random() * 900)}-R0`);
+  const [dcnNumber, setDcnNumber] = useState(`DCN-BR-${new Date().getFullYear()}-${Math.floor(100 + Math.random() * 900)}`);
+  const [revision, setRevision] = useState('');
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [area, setArea] = useState('EVM');
@@ -234,6 +235,7 @@ export const NewDCNModal: React.FC<NewDCNModalProps> = ({ onClose, onSuccess }) 
 
       const newDCN = await createDCN({
         dcnNumber,
+        revision: revision.trim() || undefined,
         title,
         description,
         area,
@@ -360,16 +362,29 @@ export const NewDCNModal: React.FC<NewDCNModalProps> = ({ onClose, onSuccess }) 
               </div>
             </div>
 
-            <div>
-              <label className="block font-semibold text-slate-700 mb-1">Título da DCN *</label>
-              <input
-                type="text"
-                placeholder="Ex: Substituição de Conector e Atualização de Firmware na Linha 3"
-                value={title}
-                onChange={e => setTitle(e.target.value)}
-                className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white text-slate-900 font-medium"
-                required
-              />
+            <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
+              <div className="sm:col-span-9">
+                <label className="block font-semibold text-slate-700 mb-1">Título da DCN *</label>
+                <input
+                  type="text"
+                  placeholder="Ex: Substituição de Conector e Atualização de Firmware na Linha 3"
+                  value={title}
+                  onChange={e => setTitle(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white text-slate-900 font-medium"
+                  required
+                />
+              </div>
+
+              <div className="sm:col-span-3">
+                <label className="block font-semibold text-slate-700 mb-1">Revisão</label>
+                <input
+                  type="text"
+                  placeholder="Ex: R0, 01"
+                  value={revision}
+                  onChange={e => setRevision(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white font-mono font-bold text-indigo-700"
+                />
+              </div>
             </div>
 
             <div>

@@ -10,6 +10,7 @@ generator client {
 model DCN {
   id                      String                    @id @default(uuid())
   dcnNumber               String                    @unique
+  revision                String?
   title                   String
   description             String                    @db.Text
   area                    String

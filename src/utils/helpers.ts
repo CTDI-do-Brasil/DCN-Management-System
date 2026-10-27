@@ -157,6 +157,7 @@ export function exportDCNsToCSV(dcns: any[]): void {
   const headers = [
     'ID',
     'Número DCN',
+    'Revisão',
     'Título',
     'Área',
     'Responsável',
@@ -172,6 +173,7 @@ export function exportDCNsToCSV(dcns: any[]): void {
   const rows = dcns.map(d => [
     `"${d.id}"`,
     `"${d.dcnNumber}"`,
+    `"${d.revision || ''}"`,
     `"${(d.title || '').replace(/"/g, '""')}"`,
     `"${d.area}"`,
     `"${d.responsible}"`,

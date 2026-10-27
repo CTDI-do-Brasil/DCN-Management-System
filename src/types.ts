@@ -117,6 +117,7 @@ export interface AuditLogEntry {
 export interface DCN {
   id: string;
   dcnNumber: string;
+  revision?: string;
   title: string;
   description: string;
   area: string;

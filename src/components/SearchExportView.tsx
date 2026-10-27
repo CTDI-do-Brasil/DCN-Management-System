@@ -155,6 +155,11 @@ export const SearchExportView: React.FC<SearchExportViewProps> = ({ onSelectDCN,
                       <span className="font-mono font-bold text-xs text-[#00386e] bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
                         {dcn.dcnNumber}
                       </span>
+                      {dcn.revision && (
+                        <span className="font-mono font-bold text-[10px] text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-200">
+                          Rev. {dcn.revision}
+                        </span>
+                      )}
                       <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${statusConfig.badgeBg} ${statusConfig.badgeText} ${statusConfig.badgeBorder}`}>
                         {statusConfig.label}
                       </span>

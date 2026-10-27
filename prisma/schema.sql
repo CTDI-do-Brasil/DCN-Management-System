@@ -8,6 +8,7 @@
 CREATE TABLE IF NOT EXISTS "dcns" (
     "id" TEXT NOT NULL,
     "dcnNumber" TEXT NOT NULL,
+    "revision" TEXT,
     "title" TEXT NOT NULL,
     "description" TEXT NOT NULL,
     "area" TEXT NOT NULL,

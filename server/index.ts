@@ -466,6 +466,7 @@ app.post('/api/dcns', async (req: Request, res: Response) => {
     const {
       id,
       dcnNumber,
+      revision,
       title,
       description,
       area,
@@ -488,6 +489,7 @@ app.post('/api/dcns', async (req: Request, res: Response) => {
       data: {
         id: id || undefined,
         dcnNumber,
+        revision: revision || null,
         title,
         description,
         area,
@@ -629,7 +631,7 @@ app.put('/api/dcns/:id', async (req: Request, res: Response) => {
       // Filter scalar fields for direct update
       const updateData: any = {};
       const allowedFields = [
-        'title', 'description', 'area', 'responsible', 'receivedDate', 'dueDate',
+        'dcnNumber', 'revision', 'title', 'description', 'area', 'responsible', 'receivedDate', 'dueDate',
         'status', 'priority', 'needsMaterial', 'needsTraining', 'implementationDate',
         'implementedBy', 'engineeringReview', 'closureNotes', 'closedAt', 'closedBy'
       ];
@@ -944,6 +946,13 @@ if (fs.existsSync(distPath)) {
 
 async function syncDatabaseOnStartup() {
   try {
+    // 0. Garantir que a coluna revision exista na tabela dcns
+    try {
+      await prisma.$executeRawUnsafe('ALTER TABLE "dcns" ADD COLUMN IF NOT EXISTS "revision" TEXT;');
+    } catch {
+      // ignora se a tabela ainda não existir
+    }
+
     // 1. Remover DCNs e Técnicos de simulação legados caso existam no banco
     const deletedDCNs = await prisma.dCN.deleteMany({
       where: {

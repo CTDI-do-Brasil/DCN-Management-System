@@ -175,6 +175,11 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
               <span className="font-mono text-xs font-black tracking-wider bg-indigo-500 text-white px-2.5 py-0.5 rounded shadow-xs">
                 {dcn.dcnNumber}
               </span>
+              {dcn.revision && (
+                <span className="font-mono text-xs font-bold bg-slate-800 text-indigo-300 border border-slate-700 px-2 py-0.5 rounded">
+                  Rev. {dcn.revision}
+                </span>
+              )}
               <span className={`px-2 py-0.5 rounded text-xs font-bold ${priorityConfig.badgeBg}`}>
                 Prioridade {priorityConfig.label}
               </span>
