@@ -103,11 +103,18 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
   const priorityConfig = PRIORITY_CONFIG[dcn.priority];
   const overdue = isOverdue(dcn.dueDate, dcn.status);
 
+  // Determina se a etapa de materiais deve ser exibida no fluxo
+  const showMaterialStep = Boolean(
+    dcn.needsMaterial || 
+    (dcn.materials && dcn.materials.length > 0) || 
+    dcn.status === 'AGUARDANDO_MATERIAL'
+  );
+
   // Workflow steps list
   const workflowSteps: { status: DCNStatus; label: string; stepNumber: number }[] = [
     { status: 'RECEBIDA', label: '1. Recebimento', stepNumber: 1 },
     { status: 'EM_AVALIACAO', label: '2. Avaliação Técnica', stepNumber: 2 },
-    { status: 'AGUARDANDO_MATERIAL', label: '3. Materiais', stepNumber: 3 },
+    ...(showMaterialStep ? [{ status: 'AGUARDANDO_MATERIAL' as DCNStatus, label: '3. Materiais', stepNumber: 3 }] : []),
     { status: 'PRONTA_IMPLEMENTACAO', label: '4. Aguardando Treinamento', stepNumber: 4 },
     { status: 'IMPLEMENTADA', label: '5. Implementação', stepNumber: 5 },
     { status: 'ENCERRADA', label: '6. Encerramento', stepNumber: 6 }
@@ -256,10 +263,10 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
         </div>
 
         {/* ----------------------------------------------------
-            VISUAL STEPPER: O FLUXO COMPLETO DAS 6 ETAPAS
+            VISUAL STEPPER: O FLUXO DE ETAPAS DA DCN
             ---------------------------------------------------- */}
         <div className="bg-slate-50 border-b border-slate-200 px-4 sm:px-6 py-3">
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2">
+          <div className={`grid grid-cols-2 sm:grid-cols-3 ${workflowSteps.length === 5 ? 'md:grid-cols-5' : 'md:grid-cols-6'} gap-2`}>
             {workflowSteps.map((step, idx) => {
               const isPast = step.stepNumber < currentStepNumber;
               const isCurrent = step.stepNumber === currentStepNumber;
@@ -1328,7 +1335,7 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
                 >
                   <option value="RECEBIDA">1. Recebida</option>
                   <option value="EM_AVALIACAO">2. Em Avaliação</option>
-                  <option value="AGUARDANDO_MATERIAL">3. Aguardando Material</option>
+                  {showMaterialStep && <option value="AGUARDANDO_MATERIAL">3. Aguardando Material</option>}
                   <option value="PRONTA_IMPLEMENTACAO">4. Aguardando Treinamento</option>
                 </select>
               </div>

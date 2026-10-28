@@ -659,7 +659,7 @@ export const DCNProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
             nextStatus = 'EM_AVALIACAO';
             break;
           case 'EM_AVALIACAO':
-            nextStatus = dcn.needsMaterial ? 'AGUARDANDO_MATERIAL' : 'PRONTA_IMPLEMENTACAO';
+            nextStatus = (dcn.needsMaterial || (dcn.materials && dcn.materials.length > 0)) ? 'AGUARDANDO_MATERIAL' : 'PRONTA_IMPLEMENTACAO';
             break;
           case 'AGUARDANDO_MATERIAL':
             nextStatus = 'PRONTA_IMPLEMENTACAO';
