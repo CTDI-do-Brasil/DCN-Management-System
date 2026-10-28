@@ -3,6 +3,7 @@ import {
   X, 
   CheckCircle2, 
   Clock, 
+  Calendar,
   AlertTriangle, 
   FileText, 
   Boxes, 
@@ -98,6 +99,19 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
   const [revertModalOpen, setRevertModalOpen] = useState(false);
   const [revertReason, setRevertReason] = useState('');
   const [revertTarget, setRevertTarget] = useState<DCNStatus>('RECEBIDA');
+
+  const [scheduledDateInput, setScheduledDateInput] = useState(dcn.training?.scheduledDate || '');
+  const [dateSaveSuccess, setDateSaveSuccess] = useState(false);
+
+  const handleSaveScheduledDate = (newDate: string) => {
+    setScheduledDateInput(newDate);
+    updateTrainingDetails(dcn.id, {
+      scheduledDate: newDate || undefined,
+      status: dcn.training?.status === 'CONCLUIDO' ? 'CONCLUIDO' : (newDate ? 'AGENDADO' : 'PENDENTE')
+    });
+    setDateSaveSuccess(true);
+    setTimeout(() => setDateSaveSuccess(false), 2000);
+  };
 
   const statusConfig = STATUS_CONFIG[dcn.status];
   const priorityConfig = PRIORITY_CONFIG[dcn.priority];
@@ -441,9 +455,14 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
               }`}
             >
               <GraduationCap className="w-3.5 h-3.5 mr-1.5" />
-              3. Matriz de Treinamento
+              3. Treinamento
+              {dcn.training?.scheduledDate && dcn.training?.status !== 'CONCLUIDO' && (
+                <span className="ml-1.5 px-1.5 py-0.5 rounded text-[10px] font-bold bg-sky-100 text-sky-800 border border-sky-300">
+                  Agendado
+                </span>
+              )}
               {dcn.needsTraining && dcn.training?.status === 'CONCLUIDO' && (
-                <span className="ml-1.5 w-2 h-2 rounded-full bg-emerald-500"></span>
+                <span className="ml-1.5 w-2 h-2 rounded-full bg-emerald-500" title="Treinamento Concluído"></span>
               )}
             </button>
 
@@ -495,7 +514,7 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
               )}
 
               {/* Grid de Metadados Principais */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
                 <div className="p-3 bg-white border border-slate-200 rounded-lg">
                   <p className="text-[11px] text-slate-500 font-medium">Família do(s) Produto(s)</p>
                   <p className="text-sm font-bold text-indigo-700 mt-0.5">{dcn.productFamily || '-'}</p>
@@ -516,6 +535,19 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
                   <p className="text-[11px] text-slate-500 font-medium">Data Limite (SLA)</p>
                   <p className={`text-sm font-bold mt-0.5 ${overdue ? 'text-rose-600' : 'text-slate-900'}`}>
                     {formatDate(dcn.dueDate)} {overdue && '(Excedido)'}
+                  </p>
+                </div>
+                <div 
+                  onClick={() => setActiveTab('treinamento')}
+                  className="p-3 bg-white border border-slate-200 hover:border-indigo-400 rounded-lg cursor-pointer transition-colors group"
+                  title="Clique para ver ou agendar na aba Treinamento"
+                >
+                  <p className="text-[11px] text-slate-500 font-medium flex items-center justify-between">
+                    <span>Treinamento Agendado</span>
+                    <Calendar className="w-3.5 h-3.5 text-indigo-500 group-hover:scale-110 transition-transform" />
+                  </p>
+                  <p className={`text-sm font-bold mt-0.5 ${dcn.training?.scheduledDate ? 'text-indigo-700' : 'text-slate-400'}`}>
+                    {dcn.training?.scheduledDate ? formatDate(dcn.training.scheduledDate) : 'Não agendado'}
                   </p>
                 </div>
               </div>
@@ -699,13 +731,14 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
             </div>
           )}
 
-          {/* TAB 3: MATRIZ DE TREINAMENTO */}
+          {/* TAB 3: TREINAMENTO & CAPACITAÇÃO */}
           {activeTab === 'treinamento' && (
             <div className="space-y-5">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50 p-4 rounded-xl border border-slate-200">
                 <div>
-                  <h3 className="text-sm font-bold text-slate-900">
-                    Treinamento dos Colaboradores Impactados (Etapa 6 do Fluxo)
+                  <h3 className="text-sm font-bold text-slate-900 flex items-center">
+                    <GraduationCap className="w-4 h-4 mr-1.5 text-indigo-600" />
+                    Treinamento dos Colaboradores Impactados
                   </h3>
                   <p className="text-xs text-slate-500">
                     Capacitação dos operadores de produção e inspetores conforme requisito ISO 9001:2015 item 8.5.6.
@@ -753,6 +786,64 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
                 </div>
               </div>
 
+              {/* CARD PRINCIPAL DE AGENDAMENTO DA DATA DE TREINAMENTO */}
+              <div className="bg-gradient-to-r from-sky-50 via-indigo-50/50 to-white p-4 rounded-xl border border-sky-200 shadow-xs">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div className="space-y-1">
+                    <div className="flex items-center space-x-2">
+                      <div className="p-2 rounded-lg bg-sky-600 text-white shadow-xs">
+                        <Calendar className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <h4 className="text-xs font-bold text-slate-900 flex items-center">
+                          Data de Agendamento do Treinamento
+                          {dcn.training?.scheduledDate ? (
+                            <span className="ml-2 px-2 py-0.5 rounded-full text-[10px] font-bold bg-sky-100 text-sky-800 border border-sky-300">
+                              Agendado para {formatDate(dcn.training.scheduledDate)}
+                            </span>
+                          ) : (
+                            <span className="ml-2 px-2 py-0.5 rounded-full text-[10px] font-medium bg-amber-100 text-amber-800 border border-amber-300">
+                              Não Agendado
+                            </span>
+                          )}
+                        </h4>
+                        <p className="text-[11px] text-slate-500">
+                          Informe a data em que o treinamento presencial/prático será realizado com os operadores e técnicos.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center space-x-2 shrink-0">
+                    <label className="text-xs font-semibold text-slate-700">Data:</label>
+                    <input
+                      type="date"
+                      value={scheduledDateInput || (dcn.training?.scheduledDate || '')}
+                      onChange={e => handleSaveScheduledDate(e.target.value)}
+                      className="px-3 py-1.5 text-xs font-medium border border-slate-300 rounded-lg bg-white text-slate-800 focus:ring-2 focus:ring-sky-500 shadow-xs"
+                    />
+
+                    {(scheduledDateInput || dcn.training?.scheduledDate) && (
+                      <button
+                        type="button"
+                        onClick={() => handleSaveScheduledDate('')}
+                        className="px-2.5 py-1.5 text-[11px] font-semibold text-slate-600 hover:text-rose-600 bg-white border border-slate-300 hover:border-rose-300 rounded-lg shadow-xs transition-colors"
+                        title="Desmarcar / Limpar data agendada"
+                      >
+                        Limpar Data
+                      </button>
+                    )}
+
+                    {dateSaveSuccess && (
+                      <span className="inline-flex items-center text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-md animate-fade-in">
+                        <Check className="w-3.5 h-3.5 mr-1" />
+                        Salvo!
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+
               {dcn.training ? (
                 <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs space-y-4">
                   <div className="flex items-center justify-between">
@@ -762,22 +853,36 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
                     <span className={`px-2.5 py-0.5 rounded text-xs font-bold border ${
                       dcn.training.status === 'CONCLUIDO'
                         ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                        : dcn.training.scheduledDate
+                        ? 'bg-sky-50 text-sky-800 border-sky-300'
                         : 'bg-amber-50 text-amber-800 border-amber-300'
                     }`}>
-                      Status: {dcn.training.status === 'CONCLUIDO' ? '100% Capacitado & Aprovado' : 'Pendente / Agendado'}
+                      Status: {
+                        dcn.training.status === 'CONCLUIDO' 
+                          ? '100% Capacitado & Aprovado' 
+                          : dcn.training.scheduledDate 
+                          ? `Agendado (${formatDate(dcn.training.scheduledDate)})` 
+                          : 'Pendente de Agendamento'
+                      }
                     </span>
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
-                    <div className="p-3 bg-slate-50 rounded-lg">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+                    <div className="p-3 bg-slate-50 rounded-lg border border-slate-200/60">
+                      <p className="text-slate-500 font-medium">Data Agendada</p>
+                      <p className="font-bold text-indigo-700 mt-0.5">
+                        {dcn.training.scheduledDate ? formatDate(dcn.training.scheduledDate) : 'Não agendada'}
+                      </p>
+                    </div>
+                    <div className="p-3 bg-slate-50 rounded-lg border border-slate-200/60">
                       <p className="text-slate-500 font-medium">Instrutor Responsável</p>
                       <p className="font-bold text-slate-900 mt-0.5">{dcn.training.instructor || dcn.responsible}</p>
                     </div>
-                    <div className="p-3 bg-slate-50 rounded-lg">
+                    <div className="p-3 bg-slate-50 rounded-lg border border-slate-200/60">
                       <p className="text-slate-500 font-medium">Público-Alvo</p>
                       <p className="font-bold text-slate-900 mt-0.5">{dcn.training.targetAudience}</p>
                     </div>
-                    <div className="p-3 bg-slate-50 rounded-lg">
+                    <div className="p-3 bg-slate-50 rounded-lg border border-slate-200/60">
                       <p className="text-slate-500 font-medium">Carga Horária Estimada</p>
                       <p className="font-bold text-slate-900 mt-0.5">{dcn.training.estimatedHours} minutos</p>
                     </div>
@@ -863,9 +968,20 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
 
                 </div>
               ) : (
-                <div className="p-8 text-center bg-white rounded-xl border border-slate-200 text-slate-500 text-xs">
-                  <GraduationCap className="w-8 h-8 mx-auto text-slate-300 mb-2" />
-                  <p className="font-semibold text-slate-700">Nenhum plano de treinamento cadastrado para esta DCN.</p>
+                <div className="p-8 text-center bg-white rounded-xl border border-slate-200 text-slate-500 text-xs space-y-3">
+                  <GraduationCap className="w-8 h-8 mx-auto text-indigo-400 mb-1" />
+                  <p className="font-semibold text-slate-700 text-sm">Plano de treinamento não iniciado para esta DCN.</p>
+                  <p className="text-slate-500 max-w-md mx-auto">
+                    Selecione a data no campo de agendamento acima para definir a data prevista ou clique abaixo para iniciar o plano de treinamento.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => handleSaveScheduledDate(new Date().toISOString().split('T')[0])}
+                    className="inline-flex items-center px-4 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-xs"
+                  >
+                    <Calendar className="w-3.5 h-3.5 mr-1.5" />
+                    Iniciar e Agendar Treinamento
+                  </button>
                 </div>
               )}
 

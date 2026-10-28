@@ -805,28 +805,63 @@ export const DCNProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   // Update Training Details
   const updateTrainingDetails = (dcnId: string, trainingUpdates: Partial<TrainingRecord>) => {
+    const timestamp = new Date().toISOString().replace('T', ' ').slice(0, 16);
+    let auditAction = 'Plano de treinamento atualizado';
+    let auditComment = 'Atualização nos dados de capacitação';
+
+    if (trainingUpdates.scheduledDate) {
+      auditAction = 'Treinamento Agendado';
+      auditComment = `Treinamento agendado para ${trainingUpdates.scheduledDate}`;
+    }
+
     setDcns(prev => prev.map(dcn => {
       if (dcn.id !== dcnId) return dcn;
       const current = dcn.training || {
         id: `trn-${Date.now()}`,
         instructor: currentEngineer.name,
-        targetAudience: 'Operadores e Inspetores',
+        targetAudience: 'Líderes, Técnicos de Reparo e Inspetores de CQ.',
         department: dcn.area,
         estimatedHours: 30,
         totalPlanned: 10,
         totalTrained: 0,
         status: 'PENDENTE' as const,
-        trainingTopics: ['Instrução de Trabalho', 'Segurança e Procedimentos']
+        trainingTopics: ['Instrução de Trabalho revisada', 'Parâmetros técnicos e tolerâncias de qualidade'],
+        attendeesList: []
       };
+
+      const updatedStatus = trainingUpdates.status || (
+        current.status === 'CONCLUIDO' 
+          ? 'CONCLUIDO' 
+          : (trainingUpdates.scheduledDate ? 'AGENDADO' : current.status)
+      );
+
+      const updatedTraining: TrainingRecord = {
+        ...current,
+        ...trainingUpdates,
+        status: updatedStatus
+      };
+
+      const newAuditTrail = [
+        ...dcn.auditTrail,
+        {
+          id: `aud-${Date.now()}-train`,
+          timestamp,
+          user: currentEngineer.name,
+          userRole: currentEngineer.role,
+          action: auditAction,
+          comment: auditComment
+        }
+      ];
+
       return {
         ...dcn,
         needsTraining: true,
-        training: {
-          ...current,
-          ...trainingUpdates
-        }
+        training: updatedTraining,
+        auditTrail: newAuditTrail
       };
     }));
+
+    api.updateTraining(dcnId, trainingUpdates).catch(() => {});
   };
 
   // Mark Training Completed

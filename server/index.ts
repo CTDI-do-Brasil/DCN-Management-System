@@ -747,6 +747,60 @@ app.put('/api/dcns/:id/checklists/:checklistId', async (req: Request, res: Respo
   }
 });
 
+// Training Endpoints
+app.put('/api/dcns/:id/training', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const trainingData = req.body;
+
+    const existing = await prisma.trainingRecord.findUnique({
+      where: { dcnId: id },
+      include: { attendeesList: true }
+    });
+
+    let result;
+    if (existing) {
+      result = await prisma.trainingRecord.update({
+        where: { dcnId: id },
+        data: {
+          instructor: trainingData.instructor !== undefined ? trainingData.instructor : existing.instructor,
+          targetAudience: trainingData.targetAudience !== undefined ? trainingData.targetAudience : existing.targetAudience,
+          department: trainingData.department !== undefined ? trainingData.department : existing.department,
+          estimatedHours: trainingData.estimatedHours !== undefined ? Number(trainingData.estimatedHours) : existing.estimatedHours,
+          scheduledDate: trainingData.scheduledDate !== undefined ? trainingData.scheduledDate : existing.scheduledDate,
+          completionDate: trainingData.completionDate !== undefined ? trainingData.completionDate : existing.completionDate,
+          status: trainingData.status !== undefined ? trainingData.status : existing.status,
+          trainingTopics: trainingData.trainingTopics !== undefined ? trainingData.trainingTopics : existing.trainingTopics
+        },
+        include: { attendeesList: true }
+      });
+    } else {
+      result = await prisma.trainingRecord.create({
+        data: {
+          dcnId: id,
+          instructor: trainingData.instructor || 'Engenharia CTDI',
+          targetAudience: trainingData.targetAudience || 'Líderes, Técnicos de Reparo e Inspetores de CQ.',
+          department: trainingData.department || 'Produção',
+          estimatedHours: Number(trainingData.estimatedHours) || 30,
+          scheduledDate: trainingData.scheduledDate || null,
+          completionDate: trainingData.completionDate || null,
+          status: trainingData.status || (trainingData.scheduledDate ? 'AGENDADO' : 'PENDENTE'),
+          trainingTopics: trainingData.trainingTopics || ['Instrução de Trabalho revisada', 'Parâmetros técnicos e tolerâncias de qualidade']
+        },
+        include: { attendeesList: true }
+      });
+      await prisma.dCN.update({
+        where: { id },
+        data: { needsTraining: true }
+      });
+    }
+
+    res.json(result);
+  } catch (error: any) {
+    res.status(500).json({ error: 'Failed to update training record', details: error.message });
+  }
+});
+
 // Technicians Endpoints
 app.get('/api/technicians', async (_req: Request, res: Response) => {
   try {

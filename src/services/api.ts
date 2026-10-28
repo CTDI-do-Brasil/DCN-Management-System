@@ -342,6 +342,16 @@ export const api = {
     return handleResponse<{ success: boolean }>(res);
   },
 
+  // Training
+  async updateTraining(dcnId: string, trainingData: Partial<TrainingRecord>): Promise<TrainingRecord> {
+    const res = await fetch(`${API_BASE}/dcns/${dcnId}/training`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(trainingData),
+    });
+    return handleResponse<TrainingRecord>(res);
+  },
+
   // Anexos MinIO
   async uploadAttachment(
     dcnId: string,
