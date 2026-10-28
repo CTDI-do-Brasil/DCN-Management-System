@@ -232,7 +232,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
           >
             <div className="w-1 h-full absolute left-0 top-0 bg-blue-500"></div>
             <div className="flex items-center justify-between">
-              <span className="text-[11px] font-semibold text-blue-800">3. Aguard. Peças</span>
+              <span className="text-[11px] font-semibold text-blue-800">3. Aguard. Materiais</span>
               <div className="w-6 h-6 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center group-hover:scale-110 transition-transform">
                 <Boxes className="w-3.5 h-3.5" />
               </div>

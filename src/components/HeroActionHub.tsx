@@ -82,7 +82,7 @@ export const HeroActionHub: React.FC<HeroActionHubProps> = ({
           onClick={() => onNavigateToDCNs('AGUARDANDO_MATERIAL')}
           className="p-2.5 rounded-xl bg-slate-50 hover:bg-slate-100 cursor-pointer transition-colors"
         >
-          <span className="text-[11px] text-slate-500 block font-medium">Aguardando Peças</span>
+          <span className="text-[11px] text-slate-500 block font-medium">Aguardando Materiais</span>
           <span className="text-base font-extrabold text-blue-600">{stats.awaitingMaterialCount}</span>
         </div>
         <div 
