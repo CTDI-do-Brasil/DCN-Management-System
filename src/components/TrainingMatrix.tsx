@@ -109,38 +109,38 @@ export const TrainingMatrix: React.FC<TrainingMatrixProps> = ({ onSelectDCN, onN
     <div className="space-y-6 pb-12 animate-fade-in" id="training-matrix-view">
       
       {/* Header */}
-      <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
+      <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+        <div className="min-w-0">
           <h1 className="text-lg font-bold text-slate-900 tracking-tight flex items-center">
-            <GraduationCap className="w-5 h-5 mr-2 text-indigo-600" />
-            Matriz de Treinamentos & Capacitação de Impactados (Etapa 6)
+            <GraduationCap className="w-5 h-5 mr-2 text-indigo-600 shrink-0" />
+            Matriz de Treinamentos (Etapa 6)
           </h1>
           <p className="text-xs text-slate-500 mt-1">
-            Qualificação formal de líderes, operadores e técnicos com evidências e registros de treinamento assinados
+            Qualificação formal de líderes, operadores e técnicos com registros de treinamento assinados
           </p>
         </div>
 
         {/* Summary & Technicians shortcut */}
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap sm:flex-nowrap items-center gap-2 shrink-0">
+          <span className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200 whitespace-nowrap">
+            Concluídos: {completedCount}
+          </span>
+          <span className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-sky-50 text-sky-800 border border-sky-200 whitespace-nowrap">
+            Pendentes: {pendingCount}
+          </span>
+          <span className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-indigo-50 text-indigo-800 border border-indigo-200 whitespace-nowrap">
+            Colaboradores: {totalTreinados}/{totalColaboradores} ({totalColaboradores > 0 ? Math.round((totalTreinados / totalColaboradores) * 100) : 0}%)
+          </span>
+
           {onNavigateToTechnicians && (
             <button
               onClick={onNavigateToTechnicians}
-              className="px-3 py-1 rounded-lg text-xs font-semibold bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 transition-colors flex items-center"
+              className="px-3 py-1.5 rounded-lg text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-2xs transition-colors flex items-center whitespace-nowrap cursor-pointer"
             >
-              <Users className="w-3.5 h-3.5 mr-1" />
+              <Users className="w-3.5 h-3.5 mr-1.5" />
               Banco de Técnicos ({technicians.length})
             </button>
           )}
-
-          <span className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200">
-            Concluídos: {completedCount}
-          </span>
-          <span className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-sky-50 text-sky-800 border border-sky-200">
-            Pendentes: {pendingCount}
-          </span>
-          <span className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-indigo-50 text-indigo-800 border border-indigo-200">
-            Colaboradores: {totalTreinados}/{totalColaboradores} ({totalColaboradores > 0 ? Math.round((totalTreinados / totalColaboradores) * 100) : 0}%)
-          </span>
         </div>
       </div>
 
@@ -219,7 +219,7 @@ export const TrainingMatrix: React.FC<TrainingMatrixProps> = ({ onSelectDCN, onN
                 </div>
                 <div>
                   <span className="text-slate-400 text-[10px] block">Carga Horária:</span>
-                  <span className="font-semibold text-slate-800">{trn.estimatedHours} horas</span>
+                  <span className="font-semibold text-slate-800">{trn.estimatedHours} minutos</span>
                 </div>
                 <div className="col-span-2">
                   <span className="text-slate-400 text-[10px] block">Público-Alvo Impactado:</span>

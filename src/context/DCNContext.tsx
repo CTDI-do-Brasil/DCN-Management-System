@@ -53,6 +53,7 @@ interface DCNContextType {
   
   // Material actions
   updateMaterialStatus: (dcnId: string, materialId: string, newStatus: MaterialItem['status']) => void;
+  updateMaterialExpectedDate: (dcnId: string, materialId: string, expectedDate: string) => void;
   addMaterialItem: (dcnId: string, item: Omit<MaterialItem, 'id'>) => void;
   
   // Training actions
@@ -411,9 +412,9 @@ export const DCNProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       const currentTraining = dcn.training || {
         id: `trn-${Date.now()}`,
         instructor: currentEngineer.name,
-        targetAudience: `${selectedTechs[0]?.department || 'Produção / Operações'}`,
+        targetAudience: 'Líderes, Técnicos de Reparo e Inspetores de CQ.',
         department: dcn.area,
-        estimatedHours: 2,
+        estimatedHours: 30,
         totalPlanned: newAttendees.length,
         totalTrained: newAttendees.filter(a => a.status === 'CONCLUIDO').length,
         status: 'PENDENTE' as const,
@@ -474,11 +475,16 @@ export const DCNProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       });
 
       const trainedCount = updatedAttendees.filter(a => a.status === 'CONCLUIDO').length;
+      const allSigned =
+        updatedAttendees.length > 0 &&
+        updatedAttendees.every(a => a.status === 'CONCLUIDO' || !!a.signedDate);
 
       return {
         ...dcn,
         training: {
           ...dcn.training,
+          status: allSigned ? 'CONCLUIDO' : dcn.training.status,
+          completionDate: allSigned ? (dcn.training.completionDate || today) : dcn.training.completionDate,
           attendeesList: updatedAttendees,
           totalTrained: trainedCount
         }
@@ -594,6 +600,51 @@ export const DCNProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   // Advance DCN Workflow
   const advanceDCNStatus = (id: string, targetStatus?: DCNStatus, comment?: string) => {
+    const targetDcn = dcns.find(d => d.id === id);
+    if (!targetDcn) return;
+
+    // Regra Etapa 3 (Materiais): Só permite avançar se todos os materiais estiverem com status RECEBIDO_ESTOQUE
+    if (targetDcn.status === 'AGUARDANDO_MATERIAL' && targetDcn.needsMaterial) {
+      const allReceivedInStock =
+        targetDcn.materials.length > 0 &&
+        targetDcn.materials.every(m => m.status === 'RECEBIDO_ESTOQUE');
+
+      if (!allReceivedInStock) {
+        window.alert(
+          'Não é possível avançar da etapa de Materiais:\nTodos os materiais cadastrados precisam estar com o status "Recebido em Estoque".'
+        );
+        return;
+      }
+    }
+
+    // Regra Etapa 5 (Implementação -> Encerramento):
+    // 1) É necessário que haja técnicos inseridos na Ata de Treinamento em Matriz de Treinamento
+    // 2) É necessário que o PDF com o registro de treinamento esteja anexado
+    if (targetDcn.status === 'IMPLEMENTADA' && (!targetStatus || targetStatus === 'ENCERRADA')) {
+      const attendees = targetDcn.training?.attendeesList || [];
+      const hasTrainingAttendees = attendees.length > 0;
+
+      if (!hasTrainingAttendees) {
+        window.alert(
+          'Não é possível avançar para o Encerramento:\nÉ necessário inserir os técnicos que participaram na Ata de Treinamento em Matriz de Treinamento.'
+        );
+        return;
+      }
+
+      const hasTrainingPdf = (targetDcn.attachments || []).some(
+        att =>
+          att.category === 'REGISTRO_TREINAMENTO' &&
+          (att.type === 'PDF' || att.name.toLowerCase().endsWith('.pdf'))
+      );
+
+      if (!hasTrainingPdf) {
+        window.alert(
+          'Não é possível avançar para o Encerramento:\nÉ obrigatório anexar o PDF com o Registro de Treinamento.'
+        );
+        return;
+      }
+    }
+
     const timestamp = new Date().toISOString().replace('T', ' ').slice(0, 16);
     
     setDcns(prev => prev.map(dcn => {
@@ -721,6 +772,19 @@ export const DCNProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         auditTrail: [...dcn.auditTrail, auditEntry]
       };
     }));
+    api.updateMaterial(dcnId, materialId, { status: newStatus }).catch(() => {});
+  };
+
+  // Update Material Expected Date (ETA)
+  const updateMaterialExpectedDate = (dcnId: string, materialId: string, expectedDate: string) => {
+    setDcns(prev => prev.map(dcn => {
+      if (dcn.id !== dcnId) return dcn;
+      return {
+        ...dcn,
+        materials: dcn.materials.map(m => m.id === materialId ? { ...m, expectedDate } : m)
+      };
+    }));
+    api.updateMaterial(dcnId, materialId, { expectedDate }).catch(() => {});
   };
 
   // Add Material Item
@@ -748,7 +812,7 @@ export const DCNProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         instructor: currentEngineer.name,
         targetAudience: 'Operadores e Inspetores',
         department: dcn.area,
-        estimatedHours: 2,
+        estimatedHours: 30,
         totalPlanned: 10,
         totalTrained: 0,
         status: 'PENDENTE' as const,
@@ -772,6 +836,13 @@ export const DCNProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
     const targetDCN = dcns.find(d => d.id === dcnId);
     if (!targetDCN || !targetDCN.training) return;
+
+    if (!targetDCN.training.attendeesList || targetDCN.training.attendeesList.length === 0) {
+      window.alert(
+        'Adicione pelo menos um colaborador à Ata de Treinamento antes de concluir o treinamento.'
+      );
+      return;
+    }
 
     // 1. Update Attendees in the DCN
     const updatedAttendees = (targetDCN.training.attendeesList || []).map(a => ({
@@ -980,6 +1051,7 @@ export const DCNProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         advanceDCNStatus,
         revertDCNStatus,
         updateMaterialStatus,
+        updateMaterialExpectedDate,
         addMaterialItem,
         updateTrainingDetails,
         markTrainingCompleted,

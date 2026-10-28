@@ -20,7 +20,7 @@ interface MaterialsOverviewProps {
 }
 
 export const MaterialsOverview: React.FC<MaterialsOverviewProps> = ({ onSelectDCN }) => {
-  const { dcns, updateMaterialStatus } = useDCN();
+  const { dcns, updateMaterialStatus, updateMaterialExpectedDate } = useDCN();
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
 
@@ -141,7 +141,7 @@ export const MaterialsOverview: React.FC<MaterialsOverviewProps> = ({ onSelectDC
           >
             <option value="ALL">Status do Material: Todos</option>
             <option value="PENDENTE">Pendente</option>
-            <option value="PEDIDO_EMITIDO">Pedido Emitido</option>
+            <option value="PEDIDO_EMITIDO">Solicitação Emitida</option>
             <option value="EM_TRANSITO">Em Trânsito</option>
             <option value="RECEBIDO_ESTOQUE">Recebido no Almoxarifado</option>
             <option value="INSPECIONADO_APROVADO">Inspecionado & Aprovado CQ</option>
@@ -234,12 +234,26 @@ export const MaterialsOverview: React.FC<MaterialsOverviewProps> = ({ onSelectDC
 
                         {/* 4. Previsão / Entrega Column */}
                         <td className="py-3 px-3 whitespace-nowrap">
-                          <p className="text-slate-700 text-xs">Prev: <span className="font-medium">{formatDate(item.expectedDate)}</span></p>
-                          {item.arrivalDate && (
-                            <p className="text-emerald-700 font-semibold text-[11px] mt-0.5">
-                              Entregue: {formatDate(item.arrivalDate)}
-                            </p>
-                          )}
+                          <div className="flex flex-col space-y-1">
+                            <div className="flex items-center space-x-1.5">
+                              <span className="text-[10px] text-slate-500 font-semibold">ETA:</span>
+                              <input
+                                type="date"
+                                value={item.expectedDate || ''}
+                                onChange={(e) => updateMaterialExpectedDate(group.dcnId, item.id, e.target.value)}
+                                className="text-xs border border-slate-300 rounded px-1.5 py-0.5 bg-white text-slate-800 focus:border-indigo-500"
+                                title="Informar ou alterar Data Estimada (ETA)"
+                              />
+                            </div>
+                            {!item.expectedDate && (
+                              <span className="text-[10px] text-amber-600 font-medium">Aguardando data (ETA)</span>
+                            )}
+                            {item.arrivalDate && (
+                              <p className="text-emerald-700 font-semibold text-[11px]">
+                                Entregue: {formatDate(item.arrivalDate)}
+                              </p>
+                            )}
+                          </div>
                         </td>
 
                         {/* 5. Status do Suprimento Column */}
@@ -257,7 +271,7 @@ export const MaterialsOverview: React.FC<MaterialsOverviewProps> = ({ onSelectDC
                             className="text-xs border border-slate-300 rounded-md px-2 py-1 bg-white font-medium text-slate-700 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 shadow-2xs"
                           >
                             <option value="PENDENTE">Pendente</option>
-                            <option value="PEDIDO_EMITIDO">Pedido Emitido</option>
+                            <option value="PEDIDO_EMITIDO">Solicitação Emitida</option>
                             <option value="EM_TRANSITO">Em Trânsito</option>
                             <option value="RECEBIDO_ESTOQUE">Recebido Estoque</option>
                             <option value="INSPECIONADO_APROVADO">Inspecionado CQ</option>

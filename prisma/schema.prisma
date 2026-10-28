@@ -11,6 +11,7 @@ model DCN {
   id                      String                    @id @default(uuid())
   dcnNumber               String                    @unique
   revision                String?
+  productFamily           String?
   title                   String
   description             String                    @db.Text
   area                    String

@@ -17,7 +17,8 @@ import {
   Sparkles,
   Users,
   LogOut,
-  Lock
+  Lock,
+  Bell
 } from 'lucide-react';
 import { useDCN } from '../context/DCNContext';
 import { useAuth } from '../context/AuthContext';
@@ -25,7 +26,7 @@ import { exportDCNsToCSV } from '../utils/helpers';
 import { DCNLogo } from './DCNLogo';
 import { CTDILogo } from './CTDILogo';
 
-export type AppNavTab = 'dashboard' | 'dcns' | 'materials' | 'trainings' | 'technicians' | 'users' | 'metrics' | 'search';
+export type AppNavTab = 'dashboard' | 'dcns' | 'materials' | 'trainings' | 'technicians' | 'users' | 'notifications' | 'metrics' | 'search';
 
 interface SidebarProps {
   activeTab: AppNavTab;
@@ -93,6 +94,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
           }
         ]
       : []),
+    {
+      id: 'notifications' as const,
+      label: 'Notificações & Alertas',
+      icon: Bell,
+      badge: stats.overdueCount > 0 ? stats.overdueCount : null,
+      badgeColor: 'bg-rose-400 text-slate-950 font-bold'
+    },
     {
       id: 'metrics' as const,
       label: 'Métricas & Dashboard',

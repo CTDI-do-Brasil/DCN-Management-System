@@ -55,7 +55,7 @@ export const HeroActionHub: React.FC<HeroActionHubProps> = ({
           className="w-full py-3.5 px-6 rounded-xl bg-[#00386e] hover:bg-[#002850] text-white font-bold text-sm shadow-md hover:shadow-lg transition-all flex items-center justify-center space-x-2.5 active:scale-[0.99] cursor-pointer"
         >
           <PlusCircle className="w-5 h-5 text-cyan-300" />
-          <span>Cadastrar Nova DCN (Entrada de Processo)</span>
+          <span>Cadastrar Nova DCN</span>
         </button>
 
         {/* Button 2: Vibrant Cyan Accent */}

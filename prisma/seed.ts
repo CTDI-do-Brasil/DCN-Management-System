@@ -1,7 +1,7 @@
 import { PrismaClient } from '@prisma/client';
 import { LEGACY_DEMO_TECH_IDS, LEGACY_DEMO_TECH_BADGES } from '../src/data/initialTechnicians';
 import { LEGACY_DEMO_DCN_IDS, LEGACY_DEMO_DCN_NUMBERS } from '../src/data/initialDCNs';
-import { INITIAL_USERS } from '../src/data/initialUsers';
+import { INITIAL_USERS, LEGACY_DEMO_USER_IDS, LEGACY_DEMO_USER_LOGINS } from '../src/data/initialUsers';
 
 const prisma = new PrismaClient();
 
@@ -33,7 +33,15 @@ async function main() {
     console.log(`✓ ${deletedTechs.count} técnico(s) de simulação removido(s) do banco.`);
   }
 
-  // 2. Garantir Usuários Iniciais se a tabela estiver vazia (e garantir Admin principal)
+  // 2. Remover usuários fictícios legados e garantir Administrador principal
+  await prisma.user.deleteMany({
+    where: {
+      OR: [
+        { id: { in: LEGACY_DEMO_USER_IDS } },
+        { login: { in: LEGACY_DEMO_USER_LOGINS } }
+      ]
+    }
+  });
   const existingUsersCount = await prisma.user.count();
   if (existingUsersCount === 0) {
     console.log(`Cadastrando ${INITIAL_USERS.length} usuários iniciais...`);

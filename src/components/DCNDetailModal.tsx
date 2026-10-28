@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { 
   X, 
   CheckCircle2, 
@@ -50,6 +50,7 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
     revertDCNStatus, 
     deleteDCN,
     updateMaterialStatus, 
+    updateMaterialExpectedDate,
     addMaterialItem, 
     updateTrainingDetails, 
     markTrainingCompleted, 
@@ -71,7 +72,8 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
   const [activeTab, setActiveTab] = useState<'geral' | 'materiais' | 'treinamento' | 'implementacao' | 'anexos' | 'auditoria'>('geral');
   const [newMaterialCode, setNewMaterialCode] = useState('');
   const [newMaterialDesc, setNewMaterialDesc] = useState('');
-  const [newMaterialQty, setNewMaterialQty] = useState(100);
+  const [newMaterialExpectedDate, setNewMaterialExpectedDate] = useState('');
+  const [newMaterialQty, setNewMaterialQty] = useState(1);
   const [newMaterialSupplier, setNewMaterialSupplier] = useState('');
   const [showAddMaterial, setShowAddMaterial] = useState(false);
 
@@ -79,8 +81,10 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
   const [showAddChecklist, setShowAddChecklist] = useState(false);
 
   // Upload MinIO States
+  const attachmentInputRef = useRef<HTMLInputElement | null>(null);
+  const [isDraggingAttachment, setIsDraggingAttachment] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [fileCategory, setFileCategory] = useState<DCNAttachment['category']>('DOCUMENTO_COMPLEMENTAR');
+  const [fileCategory, setFileCategory] = useState<DCNAttachment['category']>('REGISTRO_TREINAMENTO');
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [previewAttachment, setPreviewAttachment] = useState<DCNAttachment | null>(null);
@@ -112,9 +116,23 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
   const currentStepNumber = statusConfig.step;
 
   // Verification checks for workflow transitions
-  const allMaterialsReady = !dcn.needsMaterial || dcn.materials.every(
-    m => m.status === 'RECEBIDO_ESTOQUE' || m.status === 'INSPECIONADO_APROVADO'
+  const allMaterialsReady = !dcn.needsMaterial || (
+    dcn.materials.length > 0 &&
+    dcn.materials.every(m => m.status === 'RECEBIDO_ESTOQUE')
   );
+  const isBlockedByMaterials = dcn.status === 'AGUARDANDO_MATERIAL' && !allMaterialsReady;
+
+  const trainingAttendees = dcn.training?.attendeesList || [];
+  const hasTrainingAttendees = trainingAttendees.length > 0;
+  const isBlockedByTrainingAttendees = dcn.status === 'IMPLEMENTADA' && !hasTrainingAttendees;
+
+  const hasTrainingPdf = (dcn.attachments || []).some(
+    att =>
+      att.category === 'REGISTRO_TREINAMENTO' &&
+      (att.type === 'PDF' || att.name.toLowerCase().endsWith('.pdf'))
+  );
+  const isBlockedByTrainingPdf = dcn.status === 'IMPLEMENTADA' && !hasTrainingPdf;
+  const isBlockedToAdvance = isBlockedByMaterials || isBlockedByTrainingAttendees || isBlockedByTrainingPdf;
 
   const allChecklistCompleted = dcn.implementationChecklist.filter(c => c.mandatory).every(c => c.completed);
   const trainingCompleted = !dcn.needsTraining || dcn.training?.status === 'CONCLUIDO';
@@ -128,12 +146,13 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
       description: newMaterialDesc,
       quantity: Number(newMaterialQty) || 1,
       unit: 'UN',
-      supplier: newMaterialSupplier || 'Fornecedor Homologado',
-      expectedDate: new Date(Date.now() + 10 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+      supplier: newMaterialSupplier || '',
+      expectedDate: newMaterialExpectedDate || '',
       status: 'PEDIDO_EMITIDO'
     });
     setNewMaterialCode('');
     setNewMaterialDesc('');
+    setNewMaterialExpectedDate('');
     setNewMaterialSupplier('');
     setShowAddMaterial(false);
   };
@@ -299,13 +318,66 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
                 )}
 
                 {dcn.status !== 'ENCERRADA' && (
-                  <button
-                    onClick={() => advanceDCNStatus(dcn.id)}
-                    className="px-4 py-1 text-xs font-bold rounded-md text-white bg-indigo-600 hover:bg-indigo-700 shadow-sm transition-colors flex items-center"
-                  >
-                    <span>Avançar para Próxima Etapa</span>
-                    <ArrowRight className="w-4 h-4 ml-1.5" />
-                  </button>
+                  <div className="flex items-center space-x-2">
+                    {isBlockedByMaterials && (
+                      <button
+                        type="button"
+                        onClick={() => setActiveTab('materiais')}
+                        className="inline-flex items-center px-2.5 py-1 rounded-md text-[11px] font-semibold bg-amber-50 text-amber-800 border border-amber-300 hover:bg-amber-100 transition-colors cursor-pointer"
+                        title="Clique para ir até a aba de Materiais"
+                      >
+                        <AlertTriangle className="w-3.5 h-3.5 mr-1 text-amber-600 shrink-0" />
+                        Exige todos os materiais "Recebido em Estoque"
+                      </button>
+                    )}
+                    {isBlockedByTrainingAttendees && (
+                      <button
+                        type="button"
+                        onClick={() => setActiveTab('treinamento')}
+                        className="inline-flex items-center px-2.5 py-1 rounded-md text-[11px] font-semibold bg-amber-50 text-amber-800 border border-amber-300 hover:bg-amber-100 transition-colors cursor-pointer"
+                        title="Clique para ir até a aba Matriz de Treinamento e assinar a ata"
+                      >
+                        <AlertTriangle className="w-3.5 h-3.5 mr-1 text-amber-600 shrink-0" />
+                        Exige Colaboradores Assinados na Ata de Treinamento
+                      </button>
+                    )}
+                    {isBlockedByTrainingPdf && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setFileCategory('REGISTRO_TREINAMENTO');
+                          setShowAddAttachment(true);
+                          setActiveTab('anexos');
+                        }}
+                        className="inline-flex items-center px-2.5 py-1 rounded-md text-[11px] font-semibold bg-amber-50 text-amber-800 border border-amber-300 hover:bg-amber-100 transition-colors cursor-pointer"
+                        title="Clique para anexar o PDF com o registro de treinamento"
+                      >
+                        <AlertTriangle className="w-3.5 h-3.5 mr-1 text-amber-600 shrink-0" />
+                        Exige PDF de Registro de Treinamento anexado
+                      </button>
+                    )}
+                    <button
+                      onClick={() => advanceDCNStatus(dcn.id)}
+                      disabled={isBlockedToAdvance}
+                      title={
+                        isBlockedByMaterials
+                          ? 'Todos os materiais precisam estar com status "Recebido em Estoque" para avançar de etapa'
+                          : isBlockedByTrainingAttendees
+                          ? 'É necessário que haja Colaboradores Assinados na Ata de Treinamento em Matriz de Treinamento'
+                          : isBlockedByTrainingPdf
+                          ? 'É necessário anexar o PDF com o registro de treinamento antes de avançar para o Encerramento'
+                          : 'Avançar para Próxima Etapa'
+                      }
+                      className={`px-4 py-1 text-xs font-bold rounded-md text-white shadow-sm transition-colors flex items-center ${
+                        isBlockedToAdvance
+                          ? 'bg-slate-400 cursor-not-allowed opacity-70'
+                          : 'bg-indigo-600 hover:bg-indigo-700 cursor-pointer'
+                      }`}
+                    >
+                      <span>Avançar para Próxima Etapa</span>
+                      <ArrowRight className="w-4 h-4 ml-1.5" />
+                    </button>
+                  </div>
                 )}
               </>
             ) : (
@@ -369,18 +441,6 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
             </button>
 
             <button
-              onClick={() => setActiveTab('implementacao')}
-              className={`py-3 text-xs font-semibold border-b-2 whitespace-nowrap transition-colors flex items-center ${
-                activeTab === 'implementacao'
-                  ? 'border-indigo-600 text-indigo-600'
-                  : 'border-transparent text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <ListChecks className="w-3.5 h-3.5 mr-1.5" />
-              4. Checklist de Fábrica ({dcn.implementationChecklist.filter(c => c.completed).length}/{dcn.implementationChecklist.length})
-            </button>
-
-            <button
               onClick={() => setActiveTab('anexos')}
               className={`py-3 text-xs font-semibold border-b-2 whitespace-nowrap transition-colors flex items-center ${
                 activeTab === 'anexos'
@@ -389,7 +449,7 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
               }`}
             >
               <Paperclip className="w-3.5 h-3.5 mr-1.5" />
-              5. Anexos ({dcn.attachments.length})
+              4. Anexos ({dcn.attachments.length})
             </button>
 
             <button
@@ -401,7 +461,7 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
               }`}
             >
               <History className="w-3.5 h-3.5 mr-1.5" />
-              6. Trilha de Auditoria ({dcn.auditTrail.length})
+              5. Trilha de Auditoria ({dcn.auditTrail.length})
             </button>
           </nav>
         </div>
@@ -415,18 +475,24 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
           {activeTab === 'geral' && (
             <div className="space-y-6">
               
-              {/* Descrição & Especificação Técnica */}
-              <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
-                <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">
-                  Descrição Completa da Mudança
-                </h3>
-                <p className="text-sm text-slate-800 leading-relaxed whitespace-pre-line">
-                  {dcn.description}
-                </p>
-              </div>
+              {/* Descrição & Especificação Técnica (exibe apenas se preenchida) */}
+              {dcn.description && (
+                <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
+                  <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">
+                    Descrição Completa da Mudança
+                  </h3>
+                  <p className="text-sm text-slate-800 leading-relaxed whitespace-pre-line">
+                    {dcn.description}
+                  </p>
+                </div>
+              )}
 
               {/* Grid de Metadados Principais */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-4">
+                <div className="p-3 bg-white border border-slate-200 rounded-lg">
+                  <p className="text-[11px] text-slate-500 font-medium">Família do(s) Produto(s)</p>
+                  <p className="text-sm font-bold text-indigo-700 mt-0.5">{dcn.productFamily || '-'}</p>
+                </div>
                 <div className="p-3 bg-white border border-slate-200 rounded-lg">
                   <p className="text-[11px] text-slate-500 font-medium">Projeto</p>
                   <p className="text-sm font-bold text-slate-900 mt-0.5">{dcn.area}</p>
@@ -444,48 +510,6 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
                   <p className={`text-sm font-bold mt-0.5 ${overdue ? 'text-rose-600' : 'text-slate-900'}`}>
                     {formatDate(dcn.dueDate)} {overdue && '(Excedido)'}
                   </p>
-                </div>
-              </div>
-
-              {/* Avaliação Técnica da Engenharia */}
-              <div className="bg-white p-5 rounded-xl border border-indigo-100 bg-indigo-50/20 shadow-xs space-y-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-2">
-                    <ShieldCheck className="w-5 h-5 text-indigo-600" />
-                    <h3 className="text-sm font-bold text-slate-900">
-                      Parecer Técnico da Engenharia (Requisito 2 do Fluxo)
-                    </h3>
-                  </div>
-                  <span className="px-2.5 py-0.5 rounded text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
-                    Aprovado para Implementação
-                  </span>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-                  <div>
-                    <p className="font-semibold text-slate-700">Impacto Técnico & Produtivo:</p>
-                    <p className="text-slate-600 mt-1">
-                      {dcn.engineeringReview?.technicalImpact || 'Adequação dimensional e conformidade com procedimentos de manufatura e tolerâncias técnicas.'}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="font-semibold text-slate-700">Estimativa Financeira / Custo:</p>
-                    <p className="text-slate-600 mt-1">
-                      {dcn.engineeringReview?.costImpactEstimate || 'Otimização de custos operacionais e redução de retrabalho na linha produtiva.'}
-                    </p>
-                  </div>
-                </div>
-
-                <div>
-                  <p className="font-semibold text-slate-700 text-xs mb-1.5">Riscos Identificados & Mitigações (FMEA):</p>
-                  <div className="flex flex-wrap gap-2">
-                    {(dcn.engineeringReview?.risksIdentified || ['Necessidade de segregação de componentes legados', 'Ajuste de ferramental na estação 2']).map((risk, i) => (
-                      <span key={i} className="inline-flex items-center px-2.5 py-1 rounded bg-amber-50 text-amber-800 border border-amber-200 text-xs">
-                        <AlertTriangle className="w-3 h-3 mr-1.5 text-amber-600" />
-                        {risk}
-                      </span>
-                    ))}
-                  </div>
                 </div>
               </div>
 
@@ -559,12 +583,11 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
                       />
                     </div>
                     <div>
-                      <label className="block font-semibold text-slate-700 mb-1">Fornecedor / Fabricante</label>
+                      <label className="block font-semibold text-slate-700 mb-1">Data Estimada (ETA) (Opcional)</label>
                       <input
-                        type="text"
-                        placeholder="Ex: Ciser S.A."
-                        value={newMaterialSupplier}
-                        onChange={e => setNewMaterialSupplier(e.target.value)}
+                        type="date"
+                        value={newMaterialExpectedDate}
+                        onChange={e => setNewMaterialExpectedDate(e.target.value)}
                         className="w-full px-2.5 py-1.5 border border-slate-300 rounded bg-white"
                       />
                     </div>
@@ -621,10 +644,24 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
                               <p className="text-slate-500">{item.supplier}</p>
                             </td>
                             <td className="py-3 px-3 whitespace-nowrap">
-                              <p className="text-slate-700">Prev: {formatDate(item.expectedDate)}</p>
-                              {item.arrivalDate && (
-                                <p className="text-emerald-700 font-semibold text-[11px]">Entregue: {formatDate(item.arrivalDate)}</p>
-                              )}
+                              <div className="flex flex-col space-y-1">
+                                <div className="flex items-center space-x-1.5">
+                                  <span className="text-[10px] text-slate-500 font-semibold">ETA:</span>
+                                  <input
+                                    type="date"
+                                    value={item.expectedDate || ''}
+                                    onChange={(e) => updateMaterialExpectedDate(dcn.id, item.id, e.target.value)}
+                                    className="text-xs border border-slate-300 rounded px-1.5 py-0.5 bg-white text-slate-800 focus:border-indigo-500"
+                                    title="Informar ou alterar Data Estimada (ETA)"
+                                  />
+                                </div>
+                                {!item.expectedDate && (
+                                  <span className="text-[10px] text-amber-600 font-medium">Sem data definida</span>
+                                )}
+                                {item.arrivalDate && (
+                                  <p className="text-emerald-700 font-semibold text-[11px]">Entregue: {formatDate(item.arrivalDate)}</p>
+                                )}
+                              </div>
                             </td>
                             <td className="py-3 px-3 whitespace-nowrap">
                               <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold border ${matConfig.badgeClass}`}>
@@ -638,7 +675,7 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
                                 className="text-xs border border-slate-300 rounded px-2 py-1 bg-white focus:ring-1 focus:ring-indigo-500 font-medium"
                               >
                                 <option value="PENDENTE">Pendente</option>
-                                <option value="PEDIDO_EMITIDO">Pedido Emitido</option>
+                                <option value="PEDIDO_EMITIDO">Solicitação Emitida</option>
                                 <option value="EM_TRANSITO">Em Trânsito</option>
                                 <option value="RECEBIDO_ESTOQUE">Recebido Estoque</option>
                                 <option value="INSPECIONADO_APROVADO">Inspecionado & Aprovado CQ</option>
@@ -668,7 +705,24 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
                   </p>
                 </div>
 
-                <div className="flex items-center space-x-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFileCategory('REGISTRO_TREINAMENTO');
+                      setShowAddAttachment(true);
+                      setActiveTab('anexos');
+                    }}
+                    className={`inline-flex items-center px-3 py-1.5 text-xs font-semibold rounded-md border shadow-xs cursor-pointer ${
+                      hasTrainingPdf
+                        ? 'text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border-emerald-200'
+                        : 'text-amber-800 bg-amber-50 hover:bg-amber-100 border-amber-300'
+                    }`}
+                  >
+                    <Upload className="w-3.5 h-3.5 mr-1" />
+                    {hasTrainingPdf ? 'PDF de Treinamento Anexado' : 'Anexar PDF de Treinamento'}
+                  </button>
+
                   <button
                     onClick={() => {
                       setSelectedTechIdsToAdd([]);
@@ -718,7 +772,7 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
                     </div>
                     <div className="p-3 bg-slate-50 rounded-lg">
                       <p className="text-slate-500 font-medium">Carga Horária Estimada</p>
-                      <p className="font-bold text-slate-900 mt-0.5">{dcn.training.estimatedHours} horas</p>
+                      <p className="font-bold text-slate-900 mt-0.5">{dcn.training.estimatedHours} minutos</p>
                     </div>
                   </div>
 
@@ -943,98 +997,7 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
             </div>
           )}
 
-          {/* TAB 4: CHECKLIST DE IMPLEMENTAÇÃO */}
-          {activeTab === 'implementacao' && (
-            <div className="space-y-5">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50 p-4 rounded-xl border border-slate-200">
-                <div>
-                  <h3 className="text-sm font-bold text-slate-900">
-                    Checklist de Implementação & Validação em Chão de Fábrica (Etapa 5)
-                  </h3>
-                  <p className="text-xs text-slate-500">
-                    Garantia de que fichas de processo, calibrações e lote piloto foram aprovados.
-                  </p>
-                </div>
-
-                <button
-                  onClick={() => setShowAddChecklist(!showAddChecklist)}
-                  className="inline-flex items-center px-3 py-1.5 text-xs font-semibold rounded-md text-white bg-indigo-600 hover:bg-indigo-700 shadow-xs"
-                >
-                  <Plus className="w-3.5 h-3.5 mr-1" />
-                  Nova Tarefa
-                </button>
-              </div>
-
-              {/* Form Nova Tarefa */}
-              {showAddChecklist && (
-                <form onSubmit={handleCreateChecklistItem} className="bg-indigo-50/40 p-4 rounded-xl border border-indigo-200 space-y-3">
-                  <label className="block text-xs font-bold text-indigo-900">Descrição do Item de Validação</label>
-                  <input
-                    type="text"
-                    placeholder="Ex: Validação do primeiro lote piloto de 100 peças..."
-                    value={newChecklistText}
-                    onChange={e => setNewChecklistText(e.target.value)}
-                    className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded bg-white"
-                    required
-                  />
-                  <div className="flex justify-end space-x-2">
-                    <button
-                      type="button"
-                      onClick={() => setShowAddChecklist(false)}
-                      className="px-3 py-1 text-xs text-slate-600 bg-white border border-slate-300 rounded hover:bg-slate-100"
-                    >
-                      Cancelar
-                    </button>
-                    <button
-                      type="submit"
-                      className="px-3 py-1 text-xs font-bold text-white bg-indigo-600 rounded hover:bg-indigo-700"
-                    >
-                      Adicionar Item
-                    </button>
-                  </div>
-                </form>
-              )}
-
-              {/* Lista de Checklist */}
-              <div className="bg-white rounded-xl border border-slate-200 shadow-xs divide-y divide-slate-100">
-                {dcn.implementationChecklist.map((item) => (
-                  <div 
-                    key={item.id}
-                    onClick={() => toggleChecklistItem(dcn.id, item.id)}
-                    className="p-3.5 hover:bg-slate-50/80 transition-colors flex items-center justify-between cursor-pointer group"
-                  >
-                    <div className="flex items-center space-x-3">
-                      <input
-                        type="checkbox"
-                        checked={item.completed}
-                        onChange={() => {}} // handled by parent onClick
-                        className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 border-slate-300 cursor-pointer"
-                      />
-                      <div>
-                        <p className={`text-xs font-semibold ${item.completed ? 'line-through text-slate-400' : 'text-slate-900 group-hover:text-indigo-600'}`}>
-                          {item.title}
-                        </p>
-                        <p className="text-[10px] text-slate-400">
-                          Resp: {item.responsible} {item.completedAt && `• Concluído em ${item.completedAt}`}
-                        </p>
-                      </div>
-                    </div>
-
-                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
-                      item.completed 
-                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200' 
-                        : 'bg-slate-100 text-slate-600 border-slate-200'
-                    }`}>
-                      {item.completed ? 'Concluído' : 'Pendente'}
-                    </span>
-                  </div>
-                ))}
-              </div>
-
-            </div>
-          )}
-
-          {/* TAB 5: ANEXOS & DOCUMENTOS (MINIO OBJECT STORAGE) */}
+          {/* TAB 4: ANEXOS & DOCUMENTOS (MINIO OBJECT STORAGE) */}
           {activeTab === 'anexos' && (
             <div className="space-y-5">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50 p-4 rounded-xl border border-slate-200">
@@ -1049,7 +1012,12 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
                 </div>
 
                 <button
-                  onClick={() => setShowAddAttachment(!showAddAttachment)}
+                  onClick={() => {
+                    if (!showAddAttachment && dcn.status === 'IMPLEMENTADA' && !hasTrainingPdf) {
+                      setFileCategory('REGISTRO_TREINAMENTO');
+                    }
+                    setShowAddAttachment(!showAddAttachment);
+                  }}
                   className="inline-flex items-center px-3 py-1.5 text-xs font-semibold rounded-md text-white bg-indigo-600 hover:bg-indigo-700 shadow-xs"
                 >
                   <Upload className="w-3.5 h-3.5 mr-1" />
@@ -1059,11 +1027,16 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
 
               {/* Form Adicionar Anexo (MinIO) */}
               {showAddAttachment && (
-                <form onSubmit={handleUploadAttachment} className="bg-indigo-50/50 p-4 rounded-xl border border-indigo-200 space-y-3 text-xs">
-                  <h4 className="font-bold text-indigo-900 flex items-center gap-1.5">
-                    <Upload className="w-4 h-4 text-indigo-600" />
-                    Upload de Arquivo para o MinIO (PDF / Imagem / Vídeo / Planilha)
-                  </h4>
+                <form onSubmit={handleUploadAttachment} className="bg-indigo-50/40 p-4 rounded-xl border border-indigo-200 space-y-3 text-xs">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <h4 className="font-bold text-indigo-950 flex items-center gap-1.5">
+                      <GraduationCap className="w-4 h-4 text-indigo-600" />
+                      Anexar Folha de Treinamento (PDF) & Evidências da DCN
+                    </h4>
+                    <span className="inline-flex items-center text-[10px] font-semibold text-indigo-700 bg-indigo-100/80 px-2.5 py-0.5 rounded-full border border-indigo-200">
+                      Registro de Treinamento para Encerramento
+                    </span>
+                  </div>
 
                   {uploadError && (
                     <div className="p-2.5 bg-rose-50 text-rose-700 border border-rose-200 rounded text-xs flex items-center gap-2">
@@ -1072,46 +1045,113 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
                     </div>
                   )}
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    {/* Seletor de Arquivo Real */}
-                    <div>
-                      <label className="block font-semibold text-slate-700 mb-1">
-                        Selecione o Arquivo (PDF, Imagens, Vídeos MP4, etc.)
-                      </label>
-                      <input
-                        type="file"
-                        accept="application/pdf,image/*,video/*,.doc,.docx,.xls,.xlsx,.dwg,.txt"
-                        onChange={e => {
-                          if (e.target.files && e.target.files[0]) {
-                            setSelectedFile(e.target.files[0]);
-                          }
-                        }}
-                        className="w-full px-2.5 py-1.5 border border-slate-300 rounded bg-white text-slate-700 file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"
-                        required
-                      />
-                      {selectedFile && (
-                        <p className="text-[11px] text-slate-500 mt-1">
-                          Selecionado: <strong>{selectedFile.name}</strong> ({(selectedFile.size / (1024 * 1024)).toFixed(2)} MB)
-                        </p>
-                      )}
-                    </div>
+                  {/* Input nativo oculto */}
+                  <input
+                    ref={attachmentInputRef}
+                    type="file"
+                    accept="application/pdf,image/*,video/*,.doc,.docx,.xls,.xlsx,.dwg,.txt"
+                    onChange={e => {
+                      if (e.target.files && e.target.files[0]) {
+                        setSelectedFile(e.target.files[0]);
+                        e.target.value = '';
+                      }
+                    }}
+                    className="hidden"
+                  />
 
-                    {/* Categoria */}
-                    <div>
-                      <label className="block font-semibold text-slate-700 mb-1">Categoria do Documento</label>
-                      <select
-                        value={fileCategory}
-                        onChange={e => setFileCategory(e.target.value as any)}
-                        className="w-full px-2.5 py-1.5 border border-slate-300 rounded bg-white"
-                      >
-                        <option value="PDF_OFICIAL">PDF Oficial da DCN</option>
-                        <option value="DESENHO_TECNICO">Desenho Técnico / Diagrama</option>
-                        <option value="FOTO_EVIDENCIA">Foto ou Vídeo de Evidência</option>
-                        <option value="REGISTRO_TREINAMENTO">Registro ou Evidência de Treinamento</option>
-                        <option value="DOCUMENTO_COMPLEMENTAR">Documento Complementar / Planilha</option>
-                      </select>
+                  {/* Zona de Seleção / Drag & Drop (Estilo Cadastrar Nova DCN) */}
+                  <div
+                    onDragOver={e => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setIsDraggingAttachment(true);
+                    }}
+                    onDragLeave={e => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setIsDraggingAttachment(false);
+                    }}
+                    onDrop={e => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setIsDraggingAttachment(false);
+                      if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+                        setSelectedFile(e.dataTransfer.files[0]);
+                      }
+                    }}
+                    onClick={() => attachmentInputRef.current?.click()}
+                    className={`p-5 border-2 border-dashed rounded-xl cursor-pointer text-center transition-all ${
+                      isDraggingAttachment
+                        ? 'border-indigo-500 bg-indigo-50/70 scale-[1.01]'
+                        : 'border-slate-300 hover:border-indigo-400 bg-white/90 hover:bg-white'
+                    }`}
+                  >
+                    <div className="flex flex-col items-center justify-center space-y-1.5">
+                      <div className="w-10 h-10 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center">
+                        <Upload className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <p className="text-xs font-bold text-slate-800">
+                          Clique para selecionar a Folha de Treinamento do seu computador
+                        </p>
+                        <p className="text-[11px] text-slate-500">
+                          ou arraste e solte o arquivo PDF da ata de treinamento aqui
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap items-center justify-center gap-1.5 pt-1 text-[10px] text-slate-400">
+                        <span className="bg-indigo-50 text-indigo-700 font-bold px-2.5 py-0.5 rounded border border-indigo-200">
+                          Folha de Treinamento (PDF)
+                        </span>
+                        <span className="bg-white px-2 py-0.5 rounded border border-slate-200">PDF Oficial</span>
+                        <span className="bg-white px-2 py-0.5 rounded border border-slate-200">Fotos & Vídeos</span>
+                        <span className="bg-white px-2 py-0.5 rounded border border-slate-200">Planilhas / Docs</span>
+                      </div>
                     </div>
                   </div>
+
+                  {/* Card do Arquivo Selecionado (igual ao Cadastrar Nova DCN) */}
+                  {selectedFile && (
+                    <div className="p-2.5 bg-white border border-slate-200 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2 shadow-xs">
+                      <div className="flex items-center space-x-2.5 min-w-0 flex-1">
+                        <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center shrink-0">
+                          <FileText className="w-4 h-4 text-rose-600" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-xs font-semibold text-slate-900 truncate" title={selectedFile.name}>
+                            {selectedFile.name}
+                          </p>
+                          <div className="flex items-center gap-2 text-[10px] text-slate-400">
+                            <span>{(selectedFile.size / (1024 * 1024)).toFixed(2)} MB</span>
+                            <span>•</span>
+                            <span className="text-indigo-700 font-medium">Pronto para anexar</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center space-x-2 shrink-0">
+                        <select
+                          value={fileCategory}
+                          onChange={e => setFileCategory(e.target.value as any)}
+                          className="text-[11px] font-medium bg-slate-50 border border-slate-300 rounded-lg px-2 py-1 text-slate-700 focus:outline-hidden focus:border-indigo-500"
+                        >
+                          <option value="REGISTRO_TREINAMENTO">Registro ou Evidência de Treinamento</option>
+                          <option value="PDF_OFICIAL">PDF Oficial da DCN</option>
+                          <option value="DESENHO_TECNICO">Desenho Técnico / Diagrama</option>
+                          <option value="FOTO_EVIDENCIA">Foto ou Vídeo de Evidência</option>
+                          <option value="DOCUMENTO_COMPLEMENTAR">Documento Complementar / Planilha</option>
+                        </select>
+
+                        <button
+                          type="button"
+                          onClick={() => setSelectedFile(null)}
+                          className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-md transition-colors cursor-pointer"
+                          title="Remover arquivo selecionado"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  )}
 
                   <div className="flex justify-end space-x-2 pt-1">
                     <button
@@ -1122,19 +1162,19 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
                         setSelectedFile(null);
                         setUploadError(null);
                       }}
-                      className="px-3 py-1.5 text-xs text-slate-600 bg-white border border-slate-300 rounded hover:bg-slate-100"
+                      className="px-3 py-1.5 text-xs text-slate-600 bg-white border border-slate-300 rounded-lg hover:bg-slate-100"
                     >
                       Cancelar
                     </button>
                     <button
                       type="submit"
                       disabled={isUploading || !selectedFile}
-                      className="inline-flex items-center px-4 py-1.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 rounded"
+                      className="inline-flex items-center px-4 py-1.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 rounded-lg"
                     >
                       {isUploading ? (
                         <>
                           <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />
-                          Enviando para o MinIO...
+                          Enviando Arquivo...
                         </>
                       ) : (
                         <>

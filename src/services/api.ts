@@ -1,16 +1,40 @@
-import { DCN, Technician, MaterialItem, TrainingRecord, DCNAttachment, ImplementationChecklist, User, UserRole } from '../types';
-import { INITIAL_USERS, LocalAuthUser } from '../data/initialUsers';
+import {
+  DCN,
+  Technician,
+  MaterialItem,
+  TrainingRecord,
+  DCNAttachment,
+  ImplementationChecklist,
+  User,
+  UserRole,
+  NotificationSettings,
+  NotificationLogEntry,
+  NotificationRuleType
+} from '../types';
+import { INITIAL_USERS, LEGACY_DEMO_USER_IDS, LEGACY_DEMO_USER_LOGINS, LocalAuthUser } from '../data/initialUsers';
+import { DEFAULT_NOTIFICATION_SETTINGS, createNotificationLogEntry } from '../utils/notificationTemplates';
 
 const API_BASE = '/api';
-const LOCAL_USERS_STORAGE_KEY = 'dcn_users_local_cache_v1';
+const LOCAL_USERS_STORAGE_KEY = 'dcn_users_local_cache_v2';
+const LEGACY_USERS_STORAGE_KEY = 'dcn_users_local_cache_v1';
+const LOCAL_NOTIF_SETTINGS_KEY = 'dcn_notification_settings_v1';
+const LOCAL_NOTIF_LOGS_KEY = 'dcn_notification_logs_v1';
 
 function getLocalCachedUsers(): LocalAuthUser[] {
   try {
+    localStorage.removeItem(LEGACY_USERS_STORAGE_KEY);
     const raw = localStorage.getItem(LOCAL_USERS_STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed;
+        const filtered = parsed.filter(
+          (u: LocalAuthUser) =>
+            !LEGACY_DEMO_USER_IDS.includes(u.id) &&
+            !LEGACY_DEMO_USER_LOGINS.includes((u.login || '').toUpperCase())
+        );
+        if (filtered.length > 0) {
+          return filtered;
+        }
       }
     }
   } catch {
@@ -111,7 +135,7 @@ export const api = {
     }
   },
 
-  async createUser(payload: { login: string; nome: string; role: UserRole; senha: string }): Promise<User> {
+  async createUser(payload: { login: string; nome: string; email?: string; role: UserRole; senha: string }): Promise<User> {
     try {
       const res = await fetch(`${API_BASE}/users`, {
         method: 'POST',
@@ -139,6 +163,7 @@ export const api = {
         id: `user-${Date.now()}`,
         login: normalizedLogin,
         nome: payload.nome.trim(),
+        email: payload.email?.trim() || `${normalizedLogin.toLowerCase()}@ctdi.com`,
         role: payload.role,
         senha: payload.senha,
         createdAt: now,
@@ -150,7 +175,7 @@ export const api = {
     }
   },
 
-  async updateUser(id: string, payload: { login?: string; nome?: string; role?: UserRole; senha?: string }): Promise<User> {
+  async updateUser(id: string, payload: { login?: string; nome?: string; email?: string; role?: UserRole; senha?: string }): Promise<User> {
     try {
       const res = await fetch(`${API_BASE}/users/${id}`, {
         method: 'PUT',
@@ -174,6 +199,7 @@ export const api = {
         ...localUsers[idx],
         login: payload.login ? payload.login.trim().toUpperCase() : localUsers[idx].login,
         nome: payload.nome ? payload.nome.trim() : localUsers[idx].nome,
+        email: payload.email !== undefined ? payload.email.trim() : localUsers[idx].email,
         role: payload.role || localUsers[idx].role,
         senha: payload.senha && payload.senha.trim() ? payload.senha : localUsers[idx].senha,
         updatedAt: new Date().toISOString()
@@ -344,5 +370,109 @@ export const api = {
 
   getAttachmentFileUrl(attachmentId: string, download = false): string {
     return `${API_BASE}/attachments/${attachmentId}/file${download ? '?download=true' : ''}`;
+  },
+
+  // Notificações Recorrentes
+  async getNotificationSettings(): Promise<NotificationSettings> {
+    try {
+      const res = await fetch(`${API_BASE}/notifications/settings`);
+      const data = await handleResponse<NotificationSettings>(res);
+      localStorage.setItem(LOCAL_NOTIF_SETTINGS_KEY, JSON.stringify(data));
+      return data;
+    } catch {
+      try {
+        const raw = localStorage.getItem(LOCAL_NOTIF_SETTINGS_KEY);
+        if (raw) {
+          return { ...DEFAULT_NOTIFICATION_SETTINGS, ...JSON.parse(raw) };
+        }
+      } catch {
+        // ignore
+      }
+      return { ...DEFAULT_NOTIFICATION_SETTINGS };
+    }
+  },
+
+  async saveNotificationSettings(settings: NotificationSettings): Promise<NotificationSettings> {
+    localStorage.setItem(LOCAL_NOTIF_SETTINGS_KEY, JSON.stringify(settings));
+    try {
+      const res = await fetch(`${API_BASE}/notifications/settings`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(settings)
+      });
+      return await handleResponse<NotificationSettings>(res);
+    } catch {
+      return settings;
+    }
+  },
+
+  async getNotificationLogs(): Promise<NotificationLogEntry[]> {
+    try {
+      const res = await fetch(`${API_BASE}/notifications/logs`);
+      const logs = await handleResponse<NotificationLogEntry[]>(res);
+      localStorage.setItem(LOCAL_NOTIF_LOGS_KEY, JSON.stringify(logs));
+      return logs;
+    } catch {
+      try {
+        const raw = localStorage.getItem(LOCAL_NOTIF_LOGS_KEY);
+        if (raw) return JSON.parse(raw);
+      } catch {
+        // ignore
+      }
+      return [];
+    }
+  },
+
+  async triggerNotification(params: {
+    ruleType: NotificationRuleType;
+    dcns: DCN[];
+    users: User[];
+    settings: NotificationSettings;
+    triggerMode?: 'AUTOMATICO' | 'MANUAL';
+    targetResponsible?: string;
+  }): Promise<NotificationLogEntry> {
+    const entry = createNotificationLogEntry(
+      params.ruleType,
+      params.dcns,
+      params.users,
+      params.settings,
+      params.triggerMode || 'MANUAL',
+      params.targetResponsible
+    );
+
+    try {
+      const res = await fetch(`${API_BASE}/notifications/trigger`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ entry, settings: params.settings })
+      });
+      const saved = await handleResponse<NotificationLogEntry>(res);
+      const currentLogs = await this.getNotificationLogs();
+      localStorage.setItem(LOCAL_NOTIF_LOGS_KEY, JSON.stringify([saved, ...currentLogs.filter(l => l.id !== saved.id)].slice(0, 100)));
+      return saved;
+    } catch {
+      try {
+        const raw = localStorage.getItem(LOCAL_NOTIF_LOGS_KEY);
+        const existing: NotificationLogEntry[] = raw ? JSON.parse(raw) : [];
+        const updated = [entry, ...existing].slice(0, 100);
+        localStorage.setItem(LOCAL_NOTIF_LOGS_KEY, JSON.stringify(updated));
+      } catch {
+        // ignore
+      }
+      return entry;
+    }
+  },
+
+  async testSmtpConnection(
+    settings: NotificationSettings,
+    testRecipient?: string,
+    dcns?: DCN[]
+  ): Promise<{ success: boolean; message: string }> {
+    const res = await fetch(`${API_BASE}/notifications/test-smtp`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ settings, testRecipient, dcns })
+    });
+    return handleResponse<{ success: boolean; message: string }>(res);
   }
 };

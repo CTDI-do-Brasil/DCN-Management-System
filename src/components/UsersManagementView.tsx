@@ -44,11 +44,13 @@ export const UsersManagementView: React.FC = () => {
   const [formData, setFormData] = useState<{
     nome: string;
     login: string;
+    email: string;
     role: UserRole;
     senha: string;
   }>({
     nome: '',
     login: '',
+    email: '',
     role: 'ENGINEER',
     senha: ''
   });
@@ -114,6 +116,7 @@ export const UsersManagementView: React.FC = () => {
     setFormData({
       nome: '',
       login: '',
+      email: '',
       role: 'ENGINEER',
       senha: ''
     });
@@ -127,6 +130,7 @@ export const UsersManagementView: React.FC = () => {
     setFormData({
       nome: user.nome,
       login: user.login,
+      email: user.email || `${user.login.toLowerCase()}@ctdi.com`,
       role: user.role,
       senha: '' // Em branco mantém a senha atual
     });
@@ -167,18 +171,20 @@ export const UsersManagementView: React.FC = () => {
         const updated = await api.updateUser(editingUser.id, {
           nome: trimmedNome,
           login: trimmedLogin,
+          email: formData.email.trim() || `${trimmedLogin.toLowerCase()}@ctdi.com`,
           role: formData.role,
           ...(trimmedSenha.trim().length > 0 ? { senha: trimmedSenha } : {})
         });
         setUsers(prev => prev.map(u => (u.id === editingUser.id ? updated : u)));
         setFeedback({
           type: 'success',
-          message: `Usuário "${updated.login}" atualizado com sucesso no banco de dados!`
+          message: `Usuário "${updated.login}" atualizado com sucesso!`
         });
       } else {
         const created = await api.createUser({
           nome: trimmedNome,
           login: trimmedLogin,
+          email: formData.email.trim() || `${trimmedLogin.toLowerCase()}@ctdi.com`,
           role: formData.role,
           senha: trimmedSenha
         });
@@ -252,14 +258,14 @@ export const UsersManagementView: React.FC = () => {
           <div>
             <div className="flex items-center space-x-2.5">
               <h1 className="text-lg sm:text-xl font-extrabold text-slate-900 tracking-tight">
-                Gestão de Usuários & Acessos (RBAC)
+                Gestão de Usuários & Acessos
               </h1>
               <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
                 {users.length} {users.length === 1 ? 'usuário' : 'usuários'}
               </span>
             </div>
             <p className="text-xs text-slate-500 mt-1">
-              Cadastre novos usuários corporativos, gerencie perfis de permissão (Administrador, Engenharia, Operador) e redefina senhas direto no PostgreSQL.
+              Cadastre novos usuários corporativos, gerencie perfis de permissão (Administrador, Engenharia, Operador).
             </p>
           </div>
 
@@ -387,7 +393,7 @@ export const UsersManagementView: React.FC = () => {
               <tr className="border-b border-slate-200 bg-slate-50/80 text-[10px] font-extrabold uppercase tracking-wider text-slate-500">
                 <th className="py-3.5 px-4">Usuário / Nome Completo</th>
                 <th className="py-3.5 px-4">Login Corporativo</th>
-                <th className="py-3.5 px-4">Perfil (RBAC)</th>
+                <th className="py-3.5 px-4">Perfil</th>
                 <th className="py-3.5 px-4">Permissões no Sistema</th>
                 <th className="py-3.5 px-4 text-right">Ações</th>
               </tr>
@@ -428,8 +434,8 @@ export const UsersManagementView: React.FC = () => {
                                 </span>
                               )}
                             </div>
-                            <div className="text-[11px] text-slate-400">
-                              ID: {user.id}
+                            <div className="text-[11px] text-slate-500">
+                              {user.email || `${user.login.toLowerCase()}@ctdi.com`}
                             </div>
                           </div>
                         </div>
@@ -556,6 +562,19 @@ export const UsersManagementView: React.FC = () => {
                 <p className="text-[10px] text-slate-400 mt-1">
                   Deve conter um ponto separando nome e sobrenome (ex: <code className="font-mono text-slate-600">NOME.SOBRENOME</code>).
                 </p>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">
+                  E-mail Corporativo (Destinatário de Notificações DCN)
+                </label>
+                <input
+                  type="email"
+                  value={formData.email}
+                  onChange={e => setFormData(prev => ({ ...prev, email: e.target.value }))}
+                  placeholder={formData.login ? `Ex: ${formData.login.toLowerCase()}@ctdi.com` : 'Ex: joao.silva@ctdi.com'}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-[#00386e]/20 focus:border-[#00386e] font-medium text-slate-900"
+                />
               </div>
 
               <div>

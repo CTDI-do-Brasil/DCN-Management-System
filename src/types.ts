@@ -12,10 +12,57 @@ export interface User {
   id: string;
   login: string;
   nome: string;
+  email?: string;
   role: UserRole;
   senha?: string;
   createdAt?: string;
   updatedAt?: string;
+}
+
+export type NotificationRuleType =
+  | 'WEEKLY_PENDING'
+  | 'DAILY_OVERDUE'
+  | 'SLA_APPROACHING'
+  | 'RESPONSIBLE_ALERT';
+
+export interface NotificationSettings {
+  weeklyPendingEnabled: boolean;
+  weeklyDayOfWeek: number; // 1 = Segunda-feira
+  weeklyTime: string; // '08:00'
+
+  dailyOverdueEnabled: boolean;
+  dailyTime: string; // '08:00'
+
+  slaApproachingEnabled: boolean;
+  slaThresholdDays: number; // 5 dias antes do vencimento
+  slaTime: string; // '08:00'
+
+  responsibleAlertEnabled: boolean;
+
+  directRecipients?: string[]; // Lista de e-mails adicionais no campo Para: (To:)
+  excludedUserEmails?: string[]; // E-mails de usuários do sistema removidos manualmente da lista Para:
+  fixedRecipients: string[]; // Lista de e-mails em cópia (Cc:) / gestão
+  smtpHost: string;
+  smtpPort: number;
+  smtpUser: string;
+  smtpPass?: string;
+  smtpFrom: string;
+  smtpEnabled: boolean;
+}
+
+export interface NotificationLogEntry {
+  id: string;
+  timestamp: string;
+  ruleType: NotificationRuleType;
+  title: string;
+  subject: string;
+  recipients: string[];
+  ccRecipients?: string[];
+  dcnCount: number;
+  dcnNumbers: string[];
+  triggerMode: 'AUTOMATICO' | 'MANUAL';
+  status: 'ENVIADO_SMTP' | 'REGISTRADO_SISTEMA' | 'SEM_PENDENCIAS';
+  htmlPreview: string;
 }
 
 export type PriorityLevel = 'BAIXA' | 'MEDIA' | 'ALTA' | 'CRITICA';
@@ -118,6 +165,7 @@ export interface DCN {
   id: string;
   dcnNumber: string;
   revision?: string;
+  productFamily?: string;
   title: string;
   description: string;
   area: string;

@@ -236,7 +236,7 @@ export const AuditReportModal: React.FC<AuditReportModalProps> = ({ initialDCNId
               <div className="border border-slate-200 rounded p-3 text-xs space-y-2">
                 <div className="flex justify-between">
                   <span>Público-Alvo: <strong>{dcn.training.targetAudience}</strong></span>
-                  <span>Carga Horária: <strong>{dcn.training.estimatedHours} horas</strong></span>
+                  <span>Carga Horária: <strong>{dcn.training.estimatedHours} minutos</strong></span>
                   <span>Status: <strong className="text-emerald-800">{dcn.training.status}</strong></span>
                 </div>
                 <div className="text-[11px] text-slate-600">

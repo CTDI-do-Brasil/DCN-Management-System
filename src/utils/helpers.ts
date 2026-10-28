@@ -108,7 +108,7 @@ export const MATERIAL_STATUS_CONFIG: Record<MaterialStatus, {
     badgeClass: 'bg-slate-100 text-slate-700 border-slate-200'
   },
   PEDIDO_EMITIDO: {
-    label: 'Pedido de Compra Emitido',
+    label: 'Solicitação de Material Emitida',
     color: 'text-blue-500',
     badgeClass: 'bg-blue-50 text-blue-700 border-blue-200'
   },

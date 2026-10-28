@@ -100,17 +100,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
       }
     });
 
-    return monthCounts.map((m, idx) => {
-      if (idx <= 2) {
-        return m;
-      }
-      return {
-        ...m,
-        recebidas: m.recebidas || (idx === 3 ? 4 : idx === 4 ? 6 : idx === 5 ? 5 : 0),
-        implementadas: m.implementadas || (idx === 3 ? 3 : idx === 4 ? 4 : idx === 5 ? 5 : 0),
-        encerradas: m.encerradas || (idx === 3 ? 2 : idx === 4 ? 3 : idx === 5 ? 4 : 0)
-      };
-    });
+    return monthCounts;
   }, [dcns]);
 
   // 2. Data for DCNs por Status (Donut)

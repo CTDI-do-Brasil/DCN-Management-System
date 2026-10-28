@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useMemo } from 'react';
 import { 
   Menu, 
   Search, 
@@ -10,27 +10,51 @@ import {
   Layers,
   Sparkles,
   LogOut,
-  WifiOff
+  WifiOff,
+  AlertTriangle,
+  Clock,
+  ChevronRight
 } from 'lucide-react';
 import { useDCN } from '../context/DCNContext';
 import { useAuth } from '../context/AuthContext';
-import { exportDCNsToCSV } from '../utils/helpers';
+import { exportDCNsToCSV, getDaysRemaining, isOverdue, formatDate } from '../utils/helpers';
 import { DCNLogo } from './DCNLogo';
+import { AppNavTab } from './Sidebar';
 
 interface TopNavbarProps {
   onToggleMobileMenu: () => void;
   activeTab: string;
   onOpenNewDCN: () => void;
   onOpenAuditReport?: () => void;
+  onNavigateToTab?: (tab: AppNavTab) => void;
+  onSelectDCN?: (dcnId: string) => void;
 }
 
 export const TopNavbar: React.FC<TopNavbarProps> = ({
   onToggleMobileMenu,
   activeTab,
-  onOpenNewDCN
+  onOpenNewDCN,
+  onNavigateToTab,
+  onSelectDCN
 }) => {
-  const { filteredDCNs } = useDCN();
+  const { dcns, filteredDCNs } = useDCN();
   const { currentUser, logout, canCreateDCN, roleBadge, userInitials, isOfflineMode } = useAuth();
+  const [bellOpen, setBellOpen] = useState(false);
+
+  const alertSummary = useMemo(() => {
+    const active = dcns.filter(d => d.status !== 'ENCERRADA');
+    const overdueList = active.filter(d => isOverdue(d.dueDate, d.status));
+    const approachingList = active.filter(d => {
+      const days = getDaysRemaining(d.dueDate);
+      return days >= 0 && days <= 5;
+    });
+    return {
+      overdueList,
+      approachingList,
+      pendingCount: active.length,
+      totalAlerts: overdueList.length + approachingList.length
+    };
+  }, [dcns]);
 
   const tabLabels: Record<string, string> = {
     dashboard: 'Início',
@@ -39,6 +63,7 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({
     trainings: 'Matriz de Treinamentos',
     technicians: 'Cadastro de Técnicos & Qualidade',
     users: 'Gestão de Usuários & Acessos',
+    notifications: 'Notificações & Alertas',
     metrics: 'Métricas & Dashboard',
     search: 'Consulta & Exportação'
   };
@@ -76,6 +101,110 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({
         {/* Right Side: Quick Action Buttons & Authenticated User Profile */}
         <div className="flex items-center space-x-2 sm:space-x-3">
           
+          {/* Notification Bell Icon & Dropdown */}
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setBellOpen(!bellOpen)}
+              className="relative p-2 rounded-xl text-slate-700 hover:bg-slate-100 border border-slate-200 transition-colors cursor-pointer"
+              title="Central de Alertas e Notificações Recorrentes"
+            >
+              <Bell className="w-4 h-4 text-[#00386e]" />
+              {alertSummary.totalAlerts > 0 && (
+                <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-rose-600 text-white text-[9px] font-extrabold flex items-center justify-center">
+                  {alertSummary.totalAlerts}
+                </span>
+              )}
+            </button>
+
+            {bellOpen && (
+              <div className="absolute right-0 mt-2 w-80 sm:w-96 bg-white rounded-2xl shadow-2xl border border-slate-200 z-50 overflow-hidden text-xs">
+                <div className="p-3.5 bg-[#00386e] text-white flex items-center justify-between">
+                  <div className="flex items-center space-x-2">
+                    <Bell className="w-4 h-4 text-cyan-300" />
+                    <span className="font-bold">Alertas de SLA & DCNs</span>
+                  </div>
+                  <span className="text-[10px] font-semibold bg-white/15 px-2 py-0.5 rounded-full">
+                    {alertSummary.pendingCount} pendente(s)
+                  </span>
+                </div>
+
+                <div className="max-h-72 overflow-y-auto divide-y divide-slate-100">
+                  {alertSummary.overdueList.map(dcn => (
+                    <div
+                      key={`ov-${dcn.id}`}
+                      onClick={() => {
+                        setBellOpen(false);
+                        onSelectDCN?.(dcn.id);
+                      }}
+                      className="p-3 hover:bg-rose-50/50 cursor-pointer flex items-start space-x-2.5"
+                    >
+                      <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center justify-between">
+                          <span className="font-mono font-bold text-rose-700">{dcn.dcnNumber}</span>
+                          <span className="text-[10px] font-bold text-rose-600">SLA Vencido</span>
+                        </div>
+                        <p className="font-semibold text-slate-900 truncate">{dcn.title}</p>
+                        <p className="text-[10px] text-slate-500">
+                          Resp: {dcn.responsible} • Venceu em {formatDate(dcn.dueDate)}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+
+                  {alertSummary.approachingList.map(dcn => {
+                    const days = getDaysRemaining(dcn.dueDate);
+                    return (
+                      <div
+                        key={`ap-${dcn.id}`}
+                        onClick={() => {
+                          setBellOpen(false);
+                          onSelectDCN?.(dcn.id);
+                        }}
+                        className="p-3 hover:bg-amber-50/50 cursor-pointer flex items-start space-x-2.5"
+                      >
+                        <Clock className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center justify-between">
+                            <span className="font-mono font-bold text-amber-800">{dcn.dcnNumber}</span>
+                            <span className="text-[10px] font-bold text-amber-700">
+                              Vence em {days} dia(s)
+                            </span>
+                          </div>
+                          <p className="font-semibold text-slate-900 truncate">{dcn.title}</p>
+                          <p className="text-[10px] text-slate-500">
+                            Resp: {dcn.responsible} • SLA: {formatDate(dcn.dueDate)}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })}
+
+                  {alertSummary.totalAlerts === 0 && (
+                    <div className="p-6 text-center text-slate-400">
+                      Nenhuma DCN vencida ou próxima do vencimento (≤ 5 dias).
+                    </div>
+                  )}
+                </div>
+
+                <div className="p-2.5 bg-slate-50 border-t border-slate-200">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setBellOpen(false);
+                      onNavigateToTab?.('notifications');
+                    }}
+                    className="w-full py-1.5 px-3 rounded-xl text-xs font-bold text-[#00386e] hover:bg-indigo-50 flex items-center justify-center cursor-pointer"
+                  >
+                    <span>Gerenciar Notificações Recorrentes</span>
+                    <ChevronRight className="w-3.5 h-3.5 ml-1" />
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* Quick Export CSV Button */}
           <button
             onClick={() => exportDCNsToCSV(filteredDCNs)}

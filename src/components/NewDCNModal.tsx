@@ -25,6 +25,7 @@ interface FormMaterialItem {
   id: string;
   code: string;
   description: string;
+  expectedDate: string;
   quantity: number;
   unit: string;
   supplier: string;
@@ -86,8 +87,9 @@ export const NewDCNModal: React.FC<NewDCNModalProps> = ({ onClose, onSuccess }) 
   const defaultDueDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
   // Required Fields
-  const [dcnNumber, setDcnNumber] = useState(`DCN-BR-${new Date().getFullYear()}-${Math.floor(100 + Math.random() * 900)}`);
+  const [dcnNumber, setDcnNumber] = useState('');
   const [revision, setRevision] = useState('');
+  const [productFamily, setProductFamily] = useState('');
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [area, setArea] = useState('EVM');
@@ -104,6 +106,7 @@ export const NewDCNModal: React.FC<NewDCNModalProps> = ({ onClose, onSuccess }) 
       id: 'mat-1',
       code: '',
       description: '',
+      expectedDate: '',
       quantity: 1,
       unit: 'UN',
       supplier: ''
@@ -117,6 +120,7 @@ export const NewDCNModal: React.FC<NewDCNModalProps> = ({ onClose, onSuccess }) 
         id: `mat-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
         code: '',
         description: '',
+        expectedDate: '',
         quantity: 1,
         unit: 'UN',
         supplier: ''
@@ -140,6 +144,7 @@ export const NewDCNModal: React.FC<NewDCNModalProps> = ({ onClose, onSuccess }) 
           id: `mat-${Date.now()}`,
           code: '',
           description: '',
+          expectedDate: '',
           quantity: 1,
           unit: 'UN',
           supplier: ''
@@ -149,8 +154,8 @@ export const NewDCNModal: React.FC<NewDCNModalProps> = ({ onClose, onSuccess }) 
   };
 
   const [needsTraining, setNeedsTraining] = useState(false);
-  const [trainingAudience, setTrainingAudience] = useState('Operadores de Linha e Inspetores CQ');
-  const [trainingHours, setTrainingHours] = useState(2);
+  const [trainingAudience, setTrainingAudience] = useState('Líderes, Técnicos de Reparo e Inspetores de CQ.');
+  const [trainingHours, setTrainingHours] = useState(30);
 
   // Attachments State & MinIO Upload Queue
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -210,7 +215,7 @@ export const NewDCNModal: React.FC<NewDCNModalProps> = ({ onClose, onSuccess }) 
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title || !dcnNumber || !description) return;
+    if (!title || !dcnNumber) return;
 
     setIsSubmitting(true);
     setSubmitError(null);
@@ -225,8 +230,8 @@ export const NewDCNModal: React.FC<NewDCNModalProps> = ({ onClose, onSuccess }) 
               description: m.description.trim() || 'Item requisitado para alteração de processo',
               quantity: Number(m.quantity) || 1,
               unit: m.unit || 'UN',
-              supplier: m.supplier.trim() || 'Fornecedor Homologado',
-              expectedDate: dueDate,
+              supplier: m.supplier.trim() || '',
+              expectedDate: m.expectedDate || '',
               status: 'PEDIDO_EMITIDO'
             }))
         : [];
@@ -236,6 +241,7 @@ export const NewDCNModal: React.FC<NewDCNModalProps> = ({ onClose, onSuccess }) 
       const newDCN = await createDCN({
         dcnNumber,
         revision: revision.trim() || undefined,
+        productFamily: productFamily.trim() || undefined,
         title,
         description,
         area,
@@ -252,7 +258,7 @@ export const NewDCNModal: React.FC<NewDCNModalProps> = ({ onClose, onSuccess }) 
           instructor: responsible,
           targetAudience: trainingAudience,
           department: area,
-          estimatedHours: Number(trainingHours) || 2,
+          estimatedHours: Number(trainingHours) || 30,
           totalPlanned: 12,
           totalTrained: 0,
           status: 'PENDENTE',
@@ -323,11 +329,12 @@ export const NewDCNModal: React.FC<NewDCNModalProps> = ({ onClose, onSuccess }) 
               1. Identificação da Alteração
             </h3>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="block font-semibold text-slate-700 mb-1">Número da DCN *</label>
                 <input
                   type="text"
+                  placeholder="Ex: DCN-XXX"
                   value={dcnNumber}
                   onChange={e => setDcnNumber(e.target.value)}
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white font-mono font-bold text-indigo-700"
@@ -346,24 +353,10 @@ export const NewDCNModal: React.FC<NewDCNModalProps> = ({ onClose, onSuccess }) 
                   <option value="EM_AVALIACAO">2. Em Avaliação</option>
                 </select>
               </div>
-
-              <div>
-                <label className="block font-semibold text-slate-700 mb-1">Prioridade *</label>
-                <select
-                  value={priority}
-                  onChange={e => setPriority(e.target.value as PriorityLevel)}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white"
-                >
-                  <option value="BAIXA">Baixa</option>
-                  <option value="MEDIA">Média</option>
-                  <option value="ALTA">Alta</option>
-                  <option value="CRITICA">Crítica / Urgente</option>
-                </select>
-              </div>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
-              <div className="sm:col-span-9">
+              <div className="sm:col-span-6">
                 <label className="block font-semibold text-slate-700 mb-1">Título da DCN *</label>
                 <input
                   type="text"
@@ -375,7 +368,18 @@ export const NewDCNModal: React.FC<NewDCNModalProps> = ({ onClose, onSuccess }) 
                 />
               </div>
 
-              <div className="sm:col-span-3">
+              <div className="sm:col-span-4">
+                <label className="block font-semibold text-slate-700 mb-1">Família do(s) Produto(s)</label>
+                <input
+                  type="text"
+                  placeholder="Ex: ZD4 / ZD6, ZT411, TC21..."
+                  value={productFamily}
+                  onChange={e => setProductFamily(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white text-slate-900 font-semibold"
+                />
+              </div>
+
+              <div className="sm:col-span-2">
                 <label className="block font-semibold text-slate-700 mb-1">Revisão</label>
                 <input
                   type="text"
@@ -385,18 +389,6 @@ export const NewDCNModal: React.FC<NewDCNModalProps> = ({ onClose, onSuccess }) 
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white font-mono font-bold text-indigo-700"
                 />
               </div>
-            </div>
-
-            <div>
-              <label className="block font-semibold text-slate-700 mb-1">Descrição Detalhada & Justificativa Técnica *</label>
-              <textarea
-                rows={3}
-                placeholder="Descreva o motivo da alteração, impacto esperado no produto/processo e referências normativas..."
-                value={description}
-                onChange={e => setDescription(e.target.value)}
-                className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-white text-slate-900"
-                required
-              />
             </div>
           </div>
 
@@ -533,7 +525,7 @@ export const NewDCNModal: React.FC<NewDCNModalProps> = ({ onClose, onSuccess }) 
                             />
                           </div>
 
-                          <div className="sm:col-span-8">
+                          <div className="sm:col-span-5">
                             <label className="block text-slate-600 font-semibold mb-0.5 text-[11px]">
                               Descrição do Item
                             </label>
@@ -547,47 +539,28 @@ export const NewDCNModal: React.FC<NewDCNModalProps> = ({ onClose, onSuccess }) 
                           </div>
 
                           <div className="sm:col-span-3">
-                            <label className="block text-slate-600 font-semibold mb-0.5 text-[11px]">
-                              Qtd. Necessária
-                            </label>
+                            <div className="flex items-center justify-between mb-0.5">
+                              <label className="block text-slate-600 font-semibold text-[11px]">
+                                Data Estimada (ETA)
+                              </label>
+                              {item.expectedDate ? (
+                                <button
+                                  type="button"
+                                  onClick={() => handleUpdateMaterialRow(item.id, 'expectedDate', '')}
+                                  className="text-[10px] text-rose-600 hover:underline font-medium cursor-pointer"
+                                  title="Limpar data"
+                                >
+                                  Limpar
+                                </button>
+                              ) : (
+                                <span className="text-[10px] text-slate-400">Opcional</span>
+                              )}
+                            </div>
                             <input
-                              type="number"
-                              min={1}
-                              value={item.quantity}
-                              onChange={e => handleUpdateMaterialRow(item.id, 'quantity', Number(e.target.value) || 1)}
-                              className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg bg-white text-xs focus:border-blue-500 focus:outline-hidden"
-                            />
-                          </div>
-
-                          <div className="sm:col-span-3">
-                            <label className="block text-slate-600 font-semibold mb-0.5 text-[11px]">
-                              Unidade
-                            </label>
-                            <select
-                              value={item.unit}
-                              onChange={e => handleUpdateMaterialRow(item.id, 'unit', e.target.value)}
-                              className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg bg-white text-xs focus:border-blue-500 focus:outline-hidden"
-                            >
-                              <option value="UN">UN (Unidade)</option>
-                              <option value="PC">PC (Peça)</option>
-                              <option value="KG">KG (Quilo)</option>
-                              <option value="M">M (Metro)</option>
-                              <option value="RL">RL (Rolo)</option>
-                              <option value="CJ">CJ (Conjunto)</option>
-                              <option value="LT">LT (Litro)</option>
-                            </select>
-                          </div>
-
-                          <div className="sm:col-span-6">
-                            <label className="block text-slate-600 font-semibold mb-0.5 text-[11px]">
-                              Fornecedor / Fabricante
-                            </label>
-                            <input
-                              type="text"
-                              placeholder="Ex: Ciser / Wurth"
-                              value={item.supplier}
-                              onChange={e => handleUpdateMaterialRow(item.id, 'supplier', e.target.value)}
-                              className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg bg-white text-xs focus:border-blue-500 focus:outline-hidden"
+                              type="date"
+                              value={item.expectedDate}
+                              onChange={e => handleUpdateMaterialRow(item.id, 'expectedDate', e.target.value)}
+                              className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg bg-white text-xs font-medium text-blue-700 focus:border-blue-500 focus:outline-hidden"
                             />
                           </div>
                         </div>
@@ -622,18 +595,18 @@ export const NewDCNModal: React.FC<NewDCNModalProps> = ({ onClose, onSuccess }) 
                     <label className="block text-slate-600 font-semibold mb-0.5">Público-Alvo Impactado</label>
                     <input
                       type="text"
-                      placeholder="Ex: Operadores de Linha, Soldadores, CQ"
+                      placeholder="Ex: Líderes, Técnicos de Reparo e Inspetores de CQ."
                       value={trainingAudience}
                       onChange={e => setTrainingAudience(e.target.value)}
                       className="w-full px-2.5 py-1.5 border border-slate-300 rounded bg-white"
                     />
                   </div>
                   <div>
-                    <label className="block text-slate-600 font-semibold mb-0.5">Carga Horária Estimada (Horas)</label>
+                    <label className="block text-slate-600 font-semibold mb-0.5">Carga Horária Estimada (Minutos)</label>
                     <input
                       type="number"
                       min={1}
-                      max={40}
+                      max={480}
                       value={trainingHours}
                       onChange={e => setTrainingHours(Number(e.target.value))}
                       className="w-full px-2.5 py-1.5 border border-slate-300 rounded bg-white"

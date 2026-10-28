@@ -12,6 +12,7 @@ import { MaterialsOverview } from './components/MaterialsOverview';
 import { TrainingMatrix } from './components/TrainingMatrix';
 import { TechniciansView } from './components/TechniciansView';
 import { UsersManagementView } from './components/UsersManagementView';
+import { NotificationsView } from './components/NotificationsView';
 import { SearchExportView } from './components/SearchExportView';
 import { LoginModal } from './components/LoginModal';
 
@@ -76,6 +77,8 @@ function AppContent() {
             setAuditDCNId(dcns[0]?.id || null);
             setIsAuditReportOpen(true);
           }}
+          onNavigateToTab={setActiveTab}
+          onSelectDCN={handleSelectDCN}
         />
 
         {/* Dynamic Main Body Content */}
@@ -129,6 +132,11 @@ function AppContent() {
           {/* Tab 5.1: Gestão de Usuários & Acessos (RBAC - Admin) */}
           {activeTab === 'users' && (
             <UsersManagementView />
+          )}
+
+          {/* Tab 5.2: Serviço de Notificações Recorrentes */}
+          {activeTab === 'notifications' && (
+            <NotificationsView onSelectDCN={handleSelectDCN} />
           )}
 
           {/* Tab 6: Métricas & Dashboard (Deep Analytics) */}

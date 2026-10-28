@@ -221,10 +221,10 @@ export const TechniciansView: React.FC<TechniciansViewProps> = ({ onSelectDCN })
             </span>
             <div>
               <h1 className="text-lg sm:text-xl font-bold text-slate-900 tracking-tight">
-                Cadastro de Técnicos & Operadores de Manufatura
+                Cadastro de Técnicos & Inspetores de CQ
               </h1>
               <p className="text-xs text-slate-500 mt-0.5">
-                Base centralizada de colaboradores fabris para associação em atas de treinamento das DCNs (ISO 9001:2015 item 7.2 / 8.5.6)
+                Base centralizada de colaboradores
               </p>
             </div>
           </div>

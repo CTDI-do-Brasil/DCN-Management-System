@@ -14,9 +14,17 @@ import {
   MINIO_BUCKET,
   minioClient
 } from './minio';
-import { INITIAL_USERS } from '../src/data/initialUsers';
+import { INITIAL_USERS, LEGACY_DEMO_USER_IDS, LEGACY_DEMO_USER_LOGINS } from '../src/data/initialUsers';
 import { LEGACY_DEMO_DCN_IDS, LEGACY_DEMO_DCN_NUMBERS } from '../src/data/initialDCNs';
 import { LEGACY_DEMO_TECH_IDS, LEGACY_DEMO_TECH_BADGES } from '../src/data/initialTechnicians';
+import {
+  DEFAULT_NOTIFICATION_SETTINGS,
+  createNotificationLogEntry,
+  buildNotificationEmailHTML,
+  filterDCNsForRule
+} from '../src/utils/notificationTemplates';
+import { NotificationLogEntry, NotificationSettings } from '../src/types';
+import { sendSmtpEmail } from './smtpClient';
 
 dotenv.config();
 
@@ -201,6 +209,12 @@ app.get('/api/users', async (_req: Request, res: Response) => {
           }
         }
         usersList = await (prisma as any).user.findMany({
+          where: {
+            AND: [
+              { id: { notIn: LEGACY_DEMO_USER_IDS } },
+              { login: { notIn: LEGACY_DEMO_USER_LOGINS } }
+            ]
+          },
           select: {
             id: true,
             login: true,
@@ -467,6 +481,7 @@ app.post('/api/dcns', async (req: Request, res: Response) => {
       id,
       dcnNumber,
       revision,
+      productFamily,
       title,
       description,
       area,
@@ -490,8 +505,9 @@ app.post('/api/dcns', async (req: Request, res: Response) => {
         id: id || undefined,
         dcnNumber,
         revision: revision || null,
+        productFamily: productFamily || null,
         title,
-        description,
+        description: description || '',
         area,
         responsible,
         receivedDate,
@@ -519,7 +535,7 @@ app.post('/api/dcns', async (req: Request, res: Response) => {
             instructor: training.instructor || '',
             targetAudience: training.targetAudience || '',
             department: training.department || '',
-            estimatedHours: Number(training.estimatedHours) || 1,
+            estimatedHours: Number(training.estimatedHours) || 30,
             scheduledDate: training.scheduledDate || null,
             completionDate: training.completionDate || null,
             totalTrained: Number(training.totalTrained) || 0,
@@ -631,7 +647,7 @@ app.put('/api/dcns/:id', async (req: Request, res: Response) => {
       // Filter scalar fields for direct update
       const updateData: any = {};
       const allowedFields = [
-        'dcnNumber', 'revision', 'title', 'description', 'area', 'responsible', 'receivedDate', 'dueDate',
+        'dcnNumber', 'revision', 'productFamily', 'title', 'description', 'area', 'responsible', 'receivedDate', 'dueDate',
         'status', 'priority', 'needsMaterial', 'needsTraining', 'implementationDate',
         'implementedBy', 'engineeringReview', 'closureNotes', 'closedAt', 'closedBy'
       ];
@@ -930,6 +946,190 @@ app.delete('/api/dcns/:id/attachments/:attachmentId', async (req: Request, res: 
   }
 });
 
+// ==========================================
+// Serviço de Notificações Recorrentes
+// ==========================================
+let notificationSettingsMemory: NotificationSettings = { ...DEFAULT_NOTIFICATION_SETTINGS };
+let notificationLogsMemory: NotificationLogEntry[] = [];
+const lastExecutedRuleDate: Record<string, string> = {};
+
+app.get('/api/notifications/settings', (_req: Request, res: Response) => {
+  res.json(notificationSettingsMemory);
+});
+
+app.put('/api/notifications/settings', (req: Request, res: Response) => {
+  notificationSettingsMemory = {
+    ...notificationSettingsMemory,
+    ...req.body
+  };
+  res.json(notificationSettingsMemory);
+});
+
+app.get('/api/notifications/logs', (_req: Request, res: Response) => {
+  res.json(notificationLogsMemory);
+});
+
+app.post('/api/notifications/trigger', async (req: Request, res: Response) => {
+  const { entry, settings } = req.body;
+  if (settings) {
+    notificationSettingsMemory = { ...notificationSettingsMemory, ...settings };
+  }
+  if (!entry) {
+    return res.status(400).json({ error: 'Dados da notificação não informados.' });
+  }
+
+  let smtpSent = false;
+  if (notificationSettingsMemory.smtpEnabled && ((entry.recipients && entry.recipients.length > 0) || (entry.ccRecipients && entry.ccRecipients.length > 0))) {
+    const result = await sendSmtpEmail({
+      settings: notificationSettingsMemory,
+      to: entry.recipients || [],
+      cc: entry.ccRecipients || [],
+      subject: entry.subject,
+      html: entry.htmlPreview
+    });
+    smtpSent = result.sent;
+    console.log(`[SMTP Poste.io] ${result.detail}`);
+  }
+
+  const savedEntry: NotificationLogEntry = {
+    ...entry,
+    status: smtpSent ? 'ENVIADO_SMTP' : entry.status
+  };
+  notificationLogsMemory = [savedEntry, ...notificationLogsMemory].slice(0, 100);
+  console.log(
+    `[Notification Service] Disparo (${savedEntry.triggerMode}): "${savedEntry.subject}" -> [${savedEntry.recipients.join(', ')}]`
+  );
+  res.json(savedEntry);
+});
+
+app.post('/api/notifications/test-smtp', async (req: Request, res: Response) => {
+  const settings: NotificationSettings = {
+    ...notificationSettingsMemory,
+    ...(req.body?.settings || {})
+  };
+  const customRecipient = (req.body?.testRecipient || '').trim();
+  if (customRecipient) {
+    settings.fixedRecipients = [
+      customRecipient,
+      ...(settings.fixedRecipients || []).filter(
+        r => r.toLowerCase() !== customRecipient.toLowerCase() && r !== 'jmiranda@ctdi.com' && r !== 'jmiranda@ctdibrasil.com.br'
+      )
+    ];
+  }
+  notificationSettingsMemory = settings;
+
+  const recipients = customRecipient
+    ? [customRecipient]
+    : settings.fixedRecipients && settings.fixedRecipients.length > 0
+    ? settings.fixedRecipients
+    : [settings.smtpUser || 'admin@ctdibrasil.com.br'];
+
+  let dcnsList: any[] = Array.isArray(req.body?.dcns) ? req.body.dcns : [];
+  if (dcnsList.length === 0) {
+    try {
+      dcnsList = await prisma.dCN.findMany({
+        include: {
+          materials: true,
+          training: { include: { attendeesList: true } },
+          attachments: true,
+          auditTrail: true,
+          implementationChecklist: true
+        }
+      });
+    } catch {
+      dcnsList = [];
+    }
+  }
+
+  const openDcns = filterDCNsForRule(dcnsList as any, 'WEEKLY_PENDING', settings);
+  const { subject, html } = buildNotificationEmailHTML('WEEKLY_PENDING', openDcns, settings);
+
+  const result = await sendSmtpEmail({
+    settings,
+    to: recipients,
+    subject,
+    html
+  });
+
+  if (!result.sent) {
+    return res.status(400).json({ error: result.detail });
+  }
+  res.json({ success: true, message: result.detail });
+});
+
+// Agendador recorrente em background (verifica a cada 60 segundos)
+setInterval(async () => {
+  try {
+    const now = new Date();
+    const todayKey = now.toISOString().split('T')[0];
+    const currentHHMM = now.toTimeString().slice(0, 5);
+    const currentDay = now.getDay();
+
+    const checkAndRun = async (ruleKey: 'WEEKLY_PENDING' | 'DAILY_OVERDUE' | 'SLA_APPROACHING') => {
+      const execKey = `${ruleKey}_${todayKey}`;
+      if (lastExecutedRuleDate[execKey]) return;
+      lastExecutedRuleDate[execKey] = currentHHMM;
+
+      let dcnsList: any[] = [];
+      try {
+        dcnsList = await prisma.dCN.findMany({
+          include: { materials: true, training: { include: { attendeesList: true } }, attachments: true }
+        });
+      } catch {
+        dcnsList = [];
+      }
+
+      const entry = createNotificationLogEntry(
+        ruleKey,
+        dcnsList as any,
+        INITIAL_USERS,
+        notificationSettingsMemory,
+        'AUTOMATICO',
+        undefined,
+        false
+      );
+      if (notificationSettingsMemory.smtpEnabled && ((entry.recipients && entry.recipients.length > 0) || (entry.ccRecipients && entry.ccRecipients.length > 0)) && entry.dcnCount > 0) {
+        const resSmtp = await sendSmtpEmail({
+          settings: notificationSettingsMemory,
+          to: entry.recipients || [],
+          cc: entry.ccRecipients || [],
+          subject: entry.subject,
+          html: entry.htmlPreview
+        });
+        if (resSmtp.sent) {
+          entry.status = 'ENVIADO_SMTP';
+        }
+      }
+      notificationLogsMemory = [entry, ...notificationLogsMemory].slice(0, 100);
+      console.log(`[Scheduler Recorrente] Executado ${ruleKey} às ${currentHHMM}: ${entry.subject}`);
+    };
+
+    if (
+      notificationSettingsMemory.weeklyPendingEnabled &&
+      currentDay === notificationSettingsMemory.weeklyDayOfWeek &&
+      currentHHMM === notificationSettingsMemory.weeklyTime
+    ) {
+      await checkAndRun('WEEKLY_PENDING');
+    }
+
+    if (
+      notificationSettingsMemory.dailyOverdueEnabled &&
+      currentHHMM === notificationSettingsMemory.dailyTime
+    ) {
+      await checkAndRun('DAILY_OVERDUE');
+    }
+
+    if (
+      notificationSettingsMemory.slaApproachingEnabled &&
+      currentHHMM === notificationSettingsMemory.slaTime
+    ) {
+      await checkAndRun('SLA_APPROACHING');
+    }
+  } catch (err: any) {
+    console.warn('[Scheduler Recorrente] Erro na verificação periódica:', err.message);
+  }
+}, 60 * 1000);
+
 // 404 handler for unmatched API routes
 app.all('/api/*', (_req: Request, res: Response) => {
   res.status(404).json({ error: 'Endpoint da API não encontrado' });
@@ -946,9 +1146,10 @@ if (fs.existsSync(distPath)) {
 
 async function syncDatabaseOnStartup() {
   try {
-    // 0. Garantir que a coluna revision exista na tabela dcns
+    // 0. Garantir que as colunas revision e productFamily existam na tabela dcns
     try {
       await prisma.$executeRawUnsafe('ALTER TABLE "dcns" ADD COLUMN IF NOT EXISTS "revision" TEXT;');
+      await prisma.$executeRawUnsafe('ALTER TABLE "dcns" ADD COLUMN IF NOT EXISTS "productFamily" TEXT;');
     } catch {
       // ignora se a tabela ainda não existir
     }
@@ -978,8 +1179,16 @@ async function syncDatabaseOnStartup() {
       console.log(`[Startup Cleanup] ${deletedTechs.count} técnico(s) de simulação removido(s) do PostgreSQL.`);
     }
 
-    // 2. Garantir usuários iniciais se a tabela de usuários estiver vazia
+    // 2. Garantir usuários iniciais e remover usuários fictícios legados
     if ((prisma as any).user) {
+      await (prisma as any).user.deleteMany({
+        where: {
+          OR: [
+            { id: { in: LEGACY_DEMO_USER_IDS } },
+            { login: { in: LEGACY_DEMO_USER_LOGINS } }
+          ]
+        }
+      });
       const userCount = await (prisma as any).user.count();
       if (userCount === 0) {
         for (const u of INITIAL_USERS) {

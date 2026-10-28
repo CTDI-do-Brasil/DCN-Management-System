@@ -536,18 +536,61 @@ export const DCNManagement: React.FC<DCNManagementProps> = ({ onSelectDCN, onOpe
                           </div>
 
                           {/* Quick Workflow Action Button */}
-                          {dcn.status !== 'ENCERRADA' && (
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                advanceDCNStatus(dcn.id);
-                              }}
-                              className="w-full mt-1 py-1 px-2 text-[10px] font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded border border-indigo-200 transition-colors flex items-center justify-center"
-                            >
-                              <span>Avançar Etapa</span>
-                              <ArrowRight className="w-3 h-3 ml-1" />
-                            </button>
-                          )}
+                          {dcn.status !== 'ENCERRADA' && (() => {
+                            const blockedByMaterials =
+                              dcn.status === 'AGUARDANDO_MATERIAL' &&
+                              dcn.needsMaterial &&
+                              (dcn.materials.length === 0 || !dcn.materials.every(m => m.status === 'RECEBIDO_ESTOQUE'));
+
+                            const trainingAttendees = dcn.training?.attendeesList || [];
+                            const hasTrainingAttendees = trainingAttendees.length > 0;
+                            const blockedByTrainingAttendees =
+                              dcn.status === 'IMPLEMENTADA' && !hasTrainingAttendees;
+
+                            const hasTrainingPdf = (dcn.attachments || []).some(
+                              att =>
+                                att.category === 'REGISTRO_TREINAMENTO' &&
+                                (att.type === 'PDF' || att.name.toLowerCase().endsWith('.pdf'))
+                            );
+                            const blockedByTrainingPdf = dcn.status === 'IMPLEMENTADA' && !hasTrainingPdf;
+                            const isBlocked =
+                              blockedByMaterials || blockedByTrainingAttendees || blockedByTrainingPdf;
+
+                            return (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  advanceDCNStatus(dcn.id);
+                                }}
+                                disabled={isBlocked}
+                                title={
+                                  blockedByMaterials
+                                    ? 'Todos os materiais precisam estar com status "Recebido em Estoque" para avançar'
+                                    : blockedByTrainingAttendees
+                                    ? 'É necessário que haja Colaboradores Assinados na Ata de Treinamento em Matriz de Treinamento'
+                                    : blockedByTrainingPdf
+                                    ? 'É obrigatório anexar o PDF com o registro de treinamento para avançar para o Encerramento'
+                                    : 'Avançar Etapa'
+                                }
+                                className={`w-full mt-1 py-1 px-2 text-[10px] font-semibold rounded border transition-colors flex items-center justify-center ${
+                                  isBlocked
+                                    ? 'text-amber-700 bg-amber-50 border-amber-200 cursor-not-allowed opacity-80'
+                                    : 'text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border-indigo-200'
+                                }`}
+                              >
+                                <span>
+                                  {blockedByMaterials
+                                    ? 'Aguardando Receb. Estoque'
+                                    : blockedByTrainingAttendees
+                                    ? 'Aguardando Ata Assinada'
+                                    : blockedByTrainingPdf
+                                    ? 'Aguardando PDF Treinamento'
+                                    : 'Avançar Etapa'}
+                                </span>
+                                {!isBlocked && <ArrowRight className="w-3 h-3 ml-1" />}
+                              </button>
+                            );
+                          })()}
                         </div>
                       );
                     })
