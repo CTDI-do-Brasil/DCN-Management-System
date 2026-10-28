@@ -156,7 +156,6 @@ export const NewDCNModal: React.FC<NewDCNModalProps> = ({ onClose, onSuccess }) 
   const [needsTraining, setNeedsTraining] = useState(false);
   const [trainingScheduledDate, setTrainingScheduledDate] = useState('');
   const [trainingAudience, setTrainingAudience] = useState('Líderes, Técnicos de Reparo e Inspetores de CQ.');
-  const [trainingHours, setTrainingHours] = useState(30);
 
   // Attachments State & MinIO Upload Queue
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -259,7 +258,7 @@ export const NewDCNModal: React.FC<NewDCNModalProps> = ({ onClose, onSuccess }) 
           instructor: responsible,
           targetAudience: trainingAudience,
           department: area,
-          estimatedHours: Number(trainingHours) || 30,
+          estimatedHours: 30,
           scheduledDate: trainingScheduledDate || undefined,
           totalPlanned: 12,
           totalTrained: 0,
@@ -592,7 +591,7 @@ export const NewDCNModal: React.FC<NewDCNModalProps> = ({ onClose, onSuccess }) 
               </div>
 
               {needsTraining && (
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-2 border-t border-sky-100">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-2 border-t border-sky-100">
                   <div>
                     <label className="block text-slate-600 font-semibold mb-0.5">Data Agendada (Opcional)</label>
                     <input
@@ -609,17 +608,6 @@ export const NewDCNModal: React.FC<NewDCNModalProps> = ({ onClose, onSuccess }) 
                       placeholder="Ex: Líderes, Técnicos de Reparo e Inspetores de CQ."
                       value={trainingAudience}
                       onChange={e => setTrainingAudience(e.target.value)}
-                      className="w-full px-2.5 py-1.5 border border-slate-300 rounded bg-white text-xs"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-slate-600 font-semibold mb-0.5">Carga Horária (Minutos)</label>
-                    <input
-                      type="number"
-                      min={1}
-                      max={480}
-                      value={trainingHours}
-                      onChange={e => setTrainingHours(Number(e.target.value))}
                       className="w-full px-2.5 py-1.5 border border-slate-300 rounded bg-white text-xs"
                     />
                   </div>
