@@ -239,7 +239,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
             </div>
             <div className="mt-2 flex items-baseline justify-between">
               <span className="text-2xl font-black text-slate-900">{stats.awaitingMaterialCount}</span>
-              <span className="text-[10px] text-blue-600 font-medium">Compras / CQ</span>
+              <span className="text-[10px] text-blue-600 font-medium">Supply Team</span>
             </div>
           </div>
 
