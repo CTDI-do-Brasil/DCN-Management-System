@@ -1,4 +1,4 @@
-import { DCN, NotificationLogEntry, NotificationRuleType, NotificationSettings, User } from '../types';
+import { DCN, DCNStatus, NotificationLogEntry, NotificationRuleType, NotificationSettings, User } from '../types';
 import {
   STATUS_CONFIG,
   PRIORITY_CONFIG,
@@ -7,6 +7,15 @@ import {
   getDaysRemaining,
   isOverdue
 } from './helpers';
+
+export const STATUS_LABELS_EN: Record<DCNStatus, string> = {
+  RECEBIDA: 'Received',
+  EM_AVALIACAO: 'Under Evaluation',
+  AGUARDANDO_MATERIAL: 'Awaiting Material',
+  PRONTA_IMPLEMENTACAO: 'Awaiting Training',
+  IMPLEMENTADA: 'Implemented',
+  ENCERRADA: 'Closed'
+};
 
 export const DEFAULT_NOTIFICATION_SETTINGS: NotificationSettings = {
   weeklyPendingEnabled: true,
@@ -85,7 +94,8 @@ export interface NonImplementationDiagnosis {
 
 export function getNonImplementationReasonDetails(dcn: DCN): NonImplementationDiagnosis {
   const stageCfg = STATUS_CONFIG[dcn.status];
-  const stageLabel = stageCfg ? `Etapa ${stageCfg.step}/6 — ${stageCfg.label}` : dcn.status;
+  const enLabel = STATUS_LABELS_EN[dcn.status] || stageCfg?.label || dcn.status;
+  const stageLabel = stageCfg ? `Stage ${stageCfg.step}/6 — ${enLabel}` : dcn.status;
 
   // Última movimentação relevante na trilha de auditoria
   const latestAudit =
@@ -100,12 +110,12 @@ export function getNonImplementationReasonDetails(dcn: DCN): NonImplementationDi
     case 'RECEBIDA': {
       return {
         stageLabel,
-        reasonHeadline: 'Não implementada: Aguardando abertura e triagem técnica inicial da Engenharia.',
+        reasonHeadline: 'Not implemented: Awaiting initial review and technical triage by Engineering.',
         reasonDetails: [
-          'A DCN foi recebida e protocolada no sistema, mas ainda não entrou em avaliação técnica.',
-          'Pendente análise de impacto no processo produtivo, definição de necessidade de materiais/ferramental (BOM) e elaboração do plano de treinamento operacional.'
+          'The DCN was received and logged in the system, but has not yet entered technical evaluation.',
+          'Pending process impact analysis, BOM/materials definition, and operational training plan.'
         ],
-        actionRequired: `O engenheiro responsável (${dcn.responsible}) deve iniciar a Etapa 2 (Em Avaliação) e registrar o parecer técnico da mudança.`,
+        actionRequired: `The responsible engineer (${dcn.responsible}) must initiate Step 2 (Under Evaluation) and register the technical review.`,
         severityColor: {
           bg: '#f8fafc',
           border: '#cbd5e1',
@@ -118,22 +128,22 @@ export function getNonImplementationReasonDetails(dcn: DCN): NonImplementationDi
 
     case 'EM_AVALIACAO': {
       const details: string[] = [
-        'A DCN encontra-se retida na fase de Avaliação de Engenharia (Etapa 2/6) sem liberação para implementação em chão de fábrica.'
+        'The DCN is currently in the Engineering Evaluation phase (Stage 2/6) without release for shop floor implementation.'
       ];
       if (dcn.engineeringReview?.technicalImpact) {
-        details.push(`Impacto técnico mapeado: ${dcn.engineeringReview.technicalImpact}`);
+        details.push(`Technical impact identified: ${dcn.engineeringReview.technicalImpact}`);
       } else {
-        details.push('Parecer técnico de engenharia e mapeamento de riscos ainda não foram finalizados.');
+        details.push('Engineering technical assessment and risk mapping have not yet been completed.');
       }
       if (dcn.needsMaterial && (!dcn.materials || dcn.materials.length === 0)) {
-        details.push('A DCN indica necessidade de materiais/insumos, porém os itens da BOM ainda estão sendo levantados/cadastrados.');
+        details.push('The DCN indicates need for materials/supplies, but BOM items are still being surveyed/registered.');
       }
 
       return {
         stageLabel,
-        reasonHeadline: 'Não implementada: Em análise de viabilidade técnica e levantamento de requisitos pela Engenharia.',
+        reasonHeadline: 'Not implemented: Under technical feasibility analysis and requirement gathering by Engineering.',
         reasonDetails: details,
-        actionRequired: `Concluir a avaliação técnica e avançar a DCN para "Aguardando Material" (caso exija suprimentos) ou "Aguardando Treinamento".`,
+        actionRequired: `Complete technical evaluation and advance DCN to "Awaiting Material" (if supplies are required) or "Awaiting Training".`,
         severityColor: {
           bg: '#fffbeb',
           border: '#fcd34d',
@@ -154,19 +164,26 @@ export function getNonImplementationReasonDetails(dcn: DCN): NonImplementationDi
 
       const details: string[] = [];
       if (!dcn.needsMaterial) {
-        details.push('A DCN está posicionada na etapa de Materiais sem requisito de compra ativo; aguardando avanço para implementação.');
+        details.push('The DCN is positioned in Materials stage with no active purchasing requirement; awaiting advance to implementation.');
       } else if (!dcn.materials || dcn.materials.length === 0) {
         details.push(
-          'Implementação bloqueada por falta de suprimentos: a DCN exige material para implementação, mas nenhum item/Part Number foi registrado na guia de Materiais.'
+          'Implementation blocked by lack of supplies: DCN requires material, but no item/Part Number was registered in Materials tab.'
         );
       } else if (pendingMaterials.length > 0) {
         details.push(
-          `Implementação bloqueada por indisponibilidade física de material (${pendingMaterials.length} de ${dcn.materials.length} item(ns) ainda não recebido(s) em estoque):`
+          `Implementation blocked by physical unavailability of material (${pendingMaterials.length} of ${dcn.materials.length} item(s) not yet received in stock):`
         );
         pendingMaterials.forEach(m => {
-          const matStatus = MATERIAL_STATUS_CONFIG[m.status]?.label || m.status;
-          const prevStr = m.expectedDate ? ` | Previsão chegada: ${formatDate(m.expectedDate)}` : '';
-          const suppStr = m.supplier ? ` | Fornecedor: ${m.supplier}` : '';
+          const matStatusMap: Record<string, string> = {
+            PENDENTE: 'Pending Requisition',
+            PEDIDO_EMITIDO: 'Material Request Issued',
+            EM_TRANSITO: 'In Transit / Shipping',
+            RECEBIDO_ESTOQUE: 'Received in Warehouse',
+            INSPECIONADO_APROVADO: 'Inspected & Approved by QC'
+          };
+          const matStatus = matStatusMap[m.status] || MATERIAL_STATUS_CONFIG[m.status]?.label || m.status;
+          const prevStr = m.expectedDate ? ` | Expected Arrival: ${formatDate(m.expectedDate)}` : '';
+          const suppStr = m.supplier ? ` | Supplier: ${m.supplier}` : '';
           const noteStr = m.notes ? ` — Obs: ${m.notes}` : '';
           details.push(
             `• [${m.code}] ${m.description} (${m.quantity} ${m.unit}) — Status: ${matStatus}${suppStr}${prevStr}${noteStr}`
@@ -174,7 +191,7 @@ export function getNonImplementationReasonDetails(dcn: DCN): NonImplementationDi
         });
       } else {
         details.push(
-          `Todos os ${receivedMaterials.length} item(ns) de material já constam como Recebidos em Estoque, restando apenas a liberação formal da Engenharia para a Etapa 4.`
+          `All ${receivedMaterials.length} material item(s) are already Received in Stock, awaiting formal release from Engineering to Step 4.`
         );
       }
 
@@ -182,13 +199,13 @@ export function getNonImplementationReasonDetails(dcn: DCN): NonImplementationDi
         stageLabel,
         reasonHeadline:
           pendingMaterials.length > 0
-            ? `Não implementada: Bloqueada por pendência de Materiais / Suprimentos (${pendingMaterials.length} item(ns) aguardando recebimento em estoque).`
-            : 'Não implementada: Retida na etapa de verificação de Materiais / Almoxarifado.',
+            ? `Not implemented: Blocked by pending Materials / Supplies (${pendingMaterials.length} item(s) awaiting warehouse receipt).`
+            : 'Not implemented: Retained at Materials / Warehouse verification stage.',
         reasonDetails: details,
         actionRequired:
           pendingMaterials.length > 0
-            ? 'Acompanhar entrega junto a Compras/Almoxarifado e atualizar o status dos itens para "Recebido em Estoque" assim que derem entrada física.'
-            : 'Materiais disponíveis em estoque — avançar imediatamente a DCN para "4. Aguardando Treinamento".',
+            ? 'Follow up delivery with Purchasing/Warehouse and update items status to "Received in Stock" upon physical receipt.'
+            : 'Materials available in stock — advance DCN immediately to "4. Awaiting Training".',
         severityColor: {
           bg: '#eff6ff',
           border: '#93c5fd',
@@ -205,16 +222,16 @@ export function getNonImplementationReasonDetails(dcn: DCN): NonImplementationDi
         : null;
 
       const headline = scheduledDateFormatted
-        ? `Data de Treinamento Agendada: ${scheduledDateFormatted}.`
-        : 'Data de Treinamento: Não agendada.';
+        ? `Scheduled Training Date: ${scheduledDateFormatted}.`
+        : 'Training Date: Not scheduled.';
 
       return {
         stageLabel,
         reasonHeadline: headline,
         reasonDetails: [],
         actionRequired: scheduledDateFormatted
-          ? `Conduzir o treinamento na data agendada (${scheduledDateFormatted}), colher as assinaturas na ata e avançar a DCN para Implementada.`
-          : `Definir a data do treinamento na aba Treinamento, capacitar os operadores/técnicos da área (${dcn.area}) e avançar para a Etapa 5 (Implementada).`,
+          ? `Conduct training on scheduled date (${scheduledDateFormatted}), collect signatures on attendance sheet and advance DCN to Implemented.`
+          : `Set training date on Training tab, train operators/technicians in area (${dcn.area}) and advance to Step 5 (Implemented).`,
         severityColor: {
           bg: '#eef2ff',
           border: '#a5b4fc',
@@ -235,20 +252,20 @@ export function getNonImplementationReasonDetails(dcn: DCN): NonImplementationDi
       const blockers: string[] = [];
       if (!hasTechsInAta) {
         blockers.push(
-          'Falta cadastrar os técnicos/inspetores participantes na Ata de Treinamento (Aba 3 — Treinamento).'
+          'Participating technicians/inspectors not yet registered in Training Attendance Sheet (Tab 3 — Training).'
         );
       } else {
         blockers.push(
-          `Ata de Treinamento conta com ${attendees.length} colaborador(es) registrado(s).`
+          `Training Attendance Sheet has ${attendees.length} employee(s) registered.`
         );
       }
 
       if (!hasTrainingPdf) {
         blockers.push(
-          'Falta anexar o arquivo PDF da Folha de Treinamento assinada (Aba 4 — Anexos, categoria Registro de Treinamento).'
+          'Missing signed Training Sheet PDF file attachment (Tab 4 — Attachments, Training Record category).'
         );
       } else {
-        blockers.push('Folha de Treinamento em PDF já anexada ao dossiê da DCN.');
+        blockers.push('Signed Training Sheet PDF already attached to DCN dossier.');
       }
 
       const isMissingMandatory = !hasTechsInAta || !hasTrainingPdf;
@@ -256,12 +273,12 @@ export function getNonImplementationReasonDetails(dcn: DCN): NonImplementationDi
       return {
         stageLabel,
         reasonHeadline: isMissingMandatory
-          ? 'Implementada em linha, porém NÃO ENCERRADA por pendência documental obrigatória de Treinamento (Gate ISO 9001).'
-          : 'Implementada e com evidências de treinamento completas, aguardando apenas validação final de Encerramento.',
+          ? 'Implemented on line, but NOT CLOSED due to mandatory Training documentation pending (ISO 9001 Gate).'
+          : 'Implemented with complete training records, awaiting final Closure sign-off.',
         reasonDetails: blockers,
         actionRequired: isMissingMandatory
-          ? 'Inserir os técnicos participantes na Ata de Treinamento e fazer o upload da Folha de Treinamento assinada (PDF) para liberar o encerramento da DCN.'
-          : `Efetivar o encerramento formal da DCN (Etapa 6 — Encerrada) pelo responsável (${dcn.responsible}).`,
+          ? 'Add participating technicians to Training Attendance Sheet and upload signed Training Sheet (PDF) to allow DCN closure.'
+          : `Complete formal closure of DCN (Step 6 — Closed) by responsible (${dcn.responsible}).`,
         severityColor: {
           bg: '#f0fdfa',
           border: '#5eead4',
@@ -275,9 +292,9 @@ export function getNonImplementationReasonDetails(dcn: DCN): NonImplementationDi
     default:
       return {
         stageLabel,
-        reasonHeadline: 'DCN concluída e encerrada.',
-        reasonDetails: ['Todos os requisitos técnicos, materiais e documentais foram atendidos.'],
-        actionRequired: 'Nenhuma ação pendente.',
+        reasonHeadline: 'DCN completed and closed.',
+        reasonDetails: ['All technical, material, and documentation requirements have been met.'],
+        actionRequired: 'No pending actions.',
         severityColor: {
           bg: '#ecfdf5',
           border: '#6ee7b7',
@@ -554,21 +571,21 @@ export function buildNotificationEmailHTML(
     targetDCNs.length === 0
       ? `<tr>
           <td colspan="10" style="padding: 28px; text-align: center; color: #475569; font-size: 13px; background: #f8fafc; border: 1px solid #cbd5e1;">
-            <strong>Nenhuma DCN pendente enquadrada neste critério no momento.</strong><br/>
-            Todas as DCNs correspondentes encontram-se devidamente implementadas e encerradas.
+            <strong>No pending DCNs found matching this criteria at this time.</strong><br/>
+            All corresponding DCNs are fully implemented and closed.
           </td>
         </tr>`
       : targetDCNs
           .map((dcn, index) => {
             const diag = getNonImplementationReasonDetails(dcn);
-            const stLabel = STATUS_CONFIG[dcn.status]?.label || dcn.status;
+            const stLabel = STATUS_LABELS_EN[dcn.status] || STATUS_CONFIG[dcn.status]?.label || dcn.status;
             const days = getDaysRemaining(dcn.dueDate);
             const overdue = isOverdue(dcn.dueDate, dcn.status);
             const slaStatusHtml = overdue
-              ? renderRoundedBadge(`VENCIDA (${Math.abs(days)}d)`, '#ffe4e6', '#be123c', '#fecdd3', 108, 24, 10)
+              ? renderRoundedBadge(`OVERDUE (${Math.abs(days)}d)`, '#ffe4e6', '#be123c', '#fecdd3', 108, 24, 10)
               : days <= settings.slaThresholdDays
-              ? renderRoundedBadge(`VENCE EM ${days}d`, '#fef3c7', '#b45309', '#fde68a', 108, 24, 10)
-              : renderRoundedBadge(`NO PRAZO (${days}d)`, '#dcfce7', '#15803d', '#bbf7d0', 108, 24, 10);
+              ? renderRoundedBadge(`DUE IN ${days}d`, '#fef3c7', '#b45309', '#fde68a', 108, 24, 10)
+              : renderRoundedBadge(`ON TIME (${days}d)`, '#dcfce7', '#15803d', '#bbf7d0', 108, 24, 10);
 
             const statusBadgeHtml = renderRoundedBadge(
               stLabel,
@@ -590,7 +607,7 @@ export function buildNotificationEmailHTML(
                     )
                     .join('')
                 : dcn.needsMaterial
-                ? '<span style="color:#b45309; font-weight:600;">A definir</span>'
+                ? '<span style="color:#b45309; font-weight:600;">TBD</span>'
                 : '<span style="color:#94a3b8;">N/A</span>';
 
             // Coluna Materials ETA (Previsão de chegada dos materiais)
@@ -599,15 +616,15 @@ export function buildNotificationEmailHTML(
                 ? dcn.materials
                     .map(m => {
                       if (m.status === 'RECEBIDO_ESTOQUE' || m.status === 'INSPECIONADO_APROVADO') {
-                        return '<div style="color:#15803d; font-weight:700;">Recebido</div>';
+                        return '<div style="color:#15803d; font-weight:700;">Received</div>';
                       }
                       return `<div style="font-weight:600; color:#1e40af;">${
-                        m.expectedDate ? formatDate(m.expectedDate) : 'Sem ETA'
+                        m.expectedDate ? formatDate(m.expectedDate) : 'No ETA'
                       }</div>`;
                     })
                     .join('')
                 : dcn.needsMaterial
-                ? '<span style="color:#b45309;">Aguard. ETA</span>'
+                ? '<span style="color:#b45309;">Awaiting ETA</span>'
                 : '<span style="color:#94a3b8;">N/A</span>';
 
             // Coluna Observation (Razão da não implementação + detalhes de bloqueio)
