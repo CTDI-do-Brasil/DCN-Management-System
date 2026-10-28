@@ -211,20 +211,31 @@ export function getNonImplementationReasonDetails(dcn: DCN): NonImplementationDi
             .join('; ')}.`
         );
       }
-      if (dcn.needsTraining) {
-        const attendeeCount = (dcn.training?.attendeesList || []).length;
+
+      const attendeeCount = (dcn.training?.attendeesList || []).length;
+      if (dcn.training?.scheduledDate) {
+        details.push(
+          `<strong>Data de Treinamento Agendada:</strong> ${formatDate(dcn.training.scheduledDate)} (definida na aba Treinamento)${attendeeCount > 0 ? ` • ${attendeeCount} colaborador(es) na ata` : ''}.`
+        );
+      } else if (dcn.needsTraining) {
         details.push(
           attendeeCount === 0
-            ? 'Treinamento operacional obrigatório ainda não realizado com a equipe técnica da área.'
-            : `Treinamento em preparação (${attendeeCount} colaborador(es) pré-listado(s) na ata).`
+            ? 'Treinamento operacional obrigatório ainda não agendado na aba Treinamento.'
+            : `Treinamento em preparação (${attendeeCount} colaborador(es) pré-listado(s) na ata, pendente de agendamento de data).`
         );
       }
 
+      const headline = dcn.training?.scheduledDate
+        ? `Não implementada em linha: Aguardando treinamento agendado para ${formatDate(dcn.training.scheduledDate)}.`
+        : 'Não implementada em linha: Pronta tecnicamente, aguardando execução do setup operacional e treinamento.';
+
       return {
         stageLabel,
-        reasonHeadline: 'Não implementada em linha: Pronta tecnicamente, aguardando execução do setup operacional e treinamento.',
+        reasonHeadline: headline,
         reasonDetails: details,
-        actionRequired: `Realizar a implementação física na área (${dcn.area}), aplicar o treinamento aos operadores/técnicos e avançar para a Etapa 5 (Implementada).`,
+        actionRequired: dcn.training?.scheduledDate
+          ? `Conduzir o treinamento na data agendada (${formatDate(dcn.training.scheduledDate)}), colher as assinaturas na ata e avançar a DCN para Implementada.`
+          : `Definir a data do treinamento na aba Treinamento, capacitar os operadores/técnicos da área (${dcn.area}) e avançar para a Etapa 5 (Implementada).`,
         severityColor: {
           bg: '#eef2ff',
           border: '#a5b4fc',
@@ -620,6 +631,14 @@ export function buildNotificationEmailHTML(
                 ? '<span style="color:#b45309;">Aguard. ETA</span>'
                 : '<span style="color:#94a3b8;">N/A</span>';
 
+            // Destaque de data de treinamento agendado para DCNs que estão Aguardando Treinamento
+            const trainingEtaSnippet =
+              dcn.status === 'PRONTA_IMPLEMENTACAO' && dcn.training?.scheduledDate
+                ? `<div style="margin-top: 5px; padding: 3px 6px; background-color: #e0e7ff; border: 1px solid #c7d2fe; border-radius: 4px; font-size: 10px; font-weight: 700; color: #3730a3; white-space: nowrap;" title="Data agendada na aba Treinamento">
+                    🗓️ Trein: ${formatDate(dcn.training.scheduledDate)}
+                   </div>`
+                : '';
+
             // Coluna Observation (Razão da não implementação + detalhes de bloqueio)
             const observationDetails =
               diag.reasonDetails.length > 0 ? `<div style="margin-top:3px; color:#475569; font-size:11px;">${diag.reasonDetails.join('<br/>')}</div>` : '';
@@ -652,6 +671,7 @@ export function buildNotificationEmailHTML(
                 </td>
                 <td valign="middle" style="padding: 12px 10px; border: 1px solid #cbd5e1; vertical-align: middle; text-align: center; font-family: 'Segoe UI', Tahoma, Arial, sans-serif; font-size: 11px; white-space: nowrap;">
                   ${materialsEtaHtml}
+                  ${trainingEtaSnippet}
                 </td>
                 <td valign="middle" style="padding: 12px 10px; border: 1px solid #cbd5e1; vertical-align: middle; text-align: center; font-family: 'Segoe UI', Tahoma, Arial, sans-serif; font-size: 11px; font-weight: 600; color: #334155; white-space: nowrap;">
                   ${formatDate(dcn.receivedDate)}
