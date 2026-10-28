@@ -187,6 +187,29 @@ export function getDaysRemaining(dueDate: string): number {
   return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 }
 
+export function addBusinessDays(startDateStr: string, daysToAdd: number): string {
+  if (!startDateStr) return '';
+  const clean = startDateStr.split('T')[0].split(' ')[0].trim();
+  const parts = clean.split('-').map(Number);
+  if (parts.length !== 3) return startDateStr;
+
+  const [year, month, day] = parts;
+  const date = new Date(year, month - 1, day);
+  let added = 0;
+  while (added < daysToAdd) {
+    date.setDate(date.getDate() + 1);
+    const dayOfWeek = date.getDay();
+    // 0 = Domingo, 6 = Sábado
+    if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+      added++;
+    }
+  }
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
 export function exportDCNsToCSV(dcns: any[]): void {
   const headers = [
     'ID',

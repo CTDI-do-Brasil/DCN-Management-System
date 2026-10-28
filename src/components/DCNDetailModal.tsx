@@ -669,6 +669,18 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
                 </form>
               )}
 
+              {/* Feedback quando todos os materiais estão em estoque */}
+              {allMaterialsReady && dcn.materials.length > 0 && (
+                <div className="p-3 bg-emerald-50 border border-emerald-300 rounded-xl text-xs text-emerald-800 flex items-center justify-between shadow-xs">
+                  <div className="flex items-center space-x-2">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span>
+                      <strong>Todos os materiais disponíveis em estoque!</strong> SLA recalculado para 3 dias úteis pós-recebimento: <strong>{formatDate(dcn.dueDate)}</strong>.
+                    </span>
+                  </div>
+                </div>
+              )}
+
               {/* Tabela de Materiais */}
               {dcn.materials.length === 0 ? (
                 <div className="p-8 text-center bg-white rounded-xl border border-slate-200 text-slate-500 text-xs">

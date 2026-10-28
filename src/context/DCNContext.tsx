@@ -5,6 +5,7 @@ import { INITIAL_TECHNICIANS, LEGACY_DEMO_TECH_IDS, LEGACY_DEMO_TECH_BADGES } fr
 import confetti from 'canvas-confetti';
 import { api } from '../services/api';
 import { useAuth } from './AuthContext';
+import { addBusinessDays, formatDate } from '../utils/helpers';
 
 interface DCNStats {
 
@@ -746,6 +747,9 @@ export const DCNProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   // Update Material Status
   const updateMaterialStatus = (dcnId: string, materialId: string, newStatus: MaterialItem['status']) => {
     const timestamp = new Date().toISOString().replace('T', ' ').slice(0, 16);
+    const today = timestamp.split(' ')[0];
+    let newDueDateForDcn: string | null = null;
+
     setDcns(prev => prev.map(dcn => {
       if (dcn.id !== dcnId) return dcn;
 
@@ -755,32 +759,67 @@ export const DCNProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           ...m,
           status: newStatus,
           arrivalDate: (newStatus === 'RECEBIDO_ESTOQUE' || newStatus === 'INSPECIONADO_APROVADO') && !m.arrivalDate 
-            ? timestamp.split(' ')[0] 
+            ? today 
             : m.arrivalDate
         };
       });
 
       // Check if all materials are now ready
-      const allReady = updatedMaterials.every(
+      const allReady = updatedMaterials.length > 0 && updatedMaterials.every(
         m => m.status === 'RECEBIDO_ESTOQUE' || m.status === 'INSPECIONADO_APROVADO'
       );
 
-      const auditEntry = {
-        id: `aud-${Date.now()}`,
-        timestamp,
-        user: currentEngineer.name,
-        userRole: 'Controle de Materiais',
-        action: `Status de Material Atualizado (${newStatus})`,
-        comment: allReady ? 'Todos os materiais requeridos foram recebidos/aprovados.' : undefined
-      };
+      // Se a DCN está no status AGUARDANDO_MATERIAL e agora todos os materiais chegaram:
+      // O SLA passa para 3 dias úteis após o recebimento
+      const shouldRecalculateSLA = dcn.status === 'AGUARDANDO_MATERIAL' && allReady;
+      let calculatedDueDate = dcn.dueDate;
+      if (shouldRecalculateSLA) {
+        calculatedDueDate = addBusinessDays(today, 3);
+        newDueDateForDcn = calculatedDueDate;
+      }
+
+      const auditEntries = [
+        {
+          id: `aud-${Date.now()}-mat`,
+          timestamp,
+          user: currentEngineer.name,
+          userRole: 'Controle de Materiais',
+          action: `Status de Material Atualizado (${newStatus})`,
+          comment: allReady ? 'Todos os materiais requeridos foram recebidos/aprovados em estoque.' : undefined
+        }
+      ];
+
+      if (shouldRecalculateSLA) {
+        auditEntries.push({
+          id: `aud-${Date.now()}-sla`,
+          timestamp,
+          user: currentEngineer.name,
+          userRole: 'Engenharia de Processos',
+          action: 'SLA Atualizado: 3 Dias Úteis pós-materiais',
+          comment: `Todos os materiais foram recebidos em estoque em ${formatDate(today)}. O prazo limite (SLA) foi recalculado para 3 dias úteis: ${formatDate(calculatedDueDate)}.`
+        });
+      }
 
       return {
         ...dcn,
+        dueDate: calculatedDueDate,
         materials: updatedMaterials,
-        auditTrail: [...dcn.auditTrail, auditEntry]
+        auditTrail: [...dcn.auditTrail, ...auditEntries]
       };
     }));
-    api.updateMaterial(dcnId, materialId, { status: newStatus }).catch(() => {});
+
+    api.updateMaterial(dcnId, materialId, { 
+      status: newStatus,
+      arrivalDate: (newStatus === 'RECEBIDO_ESTOQUE' || newStatus === 'INSPECIONADO_APROVADO') ? today : undefined
+    }).catch(() => {});
+
+    if (newDueDateForDcn) {
+      api.updateDCN(
+        dcnId,
+        { dueDate: newDueDateForDcn },
+        `SLA recalculado automaticamente para 3 dias úteis após o recebimento dos materiais (${formatDate(newDueDateForDcn)}).`
+      ).catch(() => {});
+    }
   };
 
   // Update Material Expected Date (ETA)

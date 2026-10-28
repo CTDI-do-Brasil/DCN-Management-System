@@ -55,6 +55,29 @@ function detectFileType(mime: string, filename: string): 'PDF' | 'IMG' | 'VIDEO'
   return 'DOC';
 }
 
+function addBusinessDays(startDateStr: string, daysToAdd: number): string {
+  if (!startDateStr) return '';
+  const clean = startDateStr.split('T')[0].split(' ')[0].trim();
+  const parts = clean.split('-').map(Number);
+  if (parts.length !== 3) return startDateStr;
+
+  const [year, month, day] = parts;
+  const date = new Date(year, month - 1, day);
+  let added = 0;
+  while (added < daysToAdd) {
+    date.setDate(date.getDate() + 1);
+    const dayOfWeek = date.getDay();
+    // 0 = Domingo, 6 = Sábado
+    if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+      added++;
+    }
+  }
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
 app.use(cors());
 app.use(express.json());
 
@@ -714,11 +737,52 @@ app.post('/api/dcns/:id/materials', async (req: Request, res: Response) => {
 
 app.put('/api/dcns/:id/materials/:materialId', async (req: Request, res: Response) => {
   try {
-    const { materialId } = req.params;
+    const { id, materialId } = req.params;
+    const today = new Date().toISOString().split('T')[0];
+
+    const updateData = { ...req.body };
+    if ((updateData.status === 'RECEBIDO_ESTOQUE' || updateData.status === 'INSPECIONADO_APROVADO') && !updateData.arrivalDate) {
+      updateData.arrivalDate = today;
+    }
+
     const material = await prisma.materialItem.update({
       where: { id: materialId },
-      data: req.body
+      data: updateData
     });
+
+    // Se a DCN está no status AGUARDANDO_MATERIAL e agora todos os materiais estão recebidos em estoque,
+    // recalcular o SLA para 3 dias úteis a contar do recebimento
+    const currentDCN = await prisma.dCN.findUnique({
+      where: { id },
+      include: { materials: true }
+    });
+
+    if (currentDCN && currentDCN.status === 'AGUARDANDO_MATERIAL') {
+      const allReady = currentDCN.materials.length > 0 && currentDCN.materials.every(
+        m => m.status === 'RECEBIDO_ESTOQUE' || m.status === 'INSPECIONADO_APROVADO'
+      );
+
+      if (allReady) {
+        const newDueDate = addBusinessDays(today, 3);
+        await prisma.dCN.update({
+          where: { id },
+          data: { dueDate: newDueDate }
+        });
+        await prisma.auditLogEntry.create({
+          data: {
+            dcnId: id,
+            timestamp: new Date().toISOString(),
+            user: req.body.user || 'Controle de Materiais',
+            userRole: 'Controle de Materiais',
+            action: 'SLA Atualizado: 3 Dias Úteis pós-materiais',
+            fromStatus: currentDCN.status,
+            toStatus: currentDCN.status,
+            comment: `Todos os materiais foram recebidos em estoque em ${today}. O SLA foi recalculado para 3 dias úteis: ${newDueDate}.`
+          }
+        });
+      }
+    }
+
     res.json(material);
   } catch (error: any) {
     res.status(500).json({ error: 'Failed to update material', details: error.message });
