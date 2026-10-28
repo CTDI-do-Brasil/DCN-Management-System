@@ -172,8 +172,22 @@ export function formatDateUS(dateString?: string): string {
   return dateString;
 }
 
-export function isOverdue(dueDate: string, status: DCNStatus): boolean {
-  if (status === 'ENCERRADA') return false;
+export function isWaitingMaterials(dcn?: {
+  needsMaterial?: boolean;
+  materials?: Array<{ status: string }>;
+}): boolean {
+  if (!dcn) return false;
+  const requiresMaterial = Boolean(dcn.needsMaterial || (dcn.materials && dcn.materials.length > 0));
+  if (!requiresMaterial) return false;
+  const hasPending = !dcn.materials || dcn.materials.length === 0 || dcn.materials.some(
+    m => m.status !== 'RECEBIDO_ESTOQUE' && m.status !== 'INSPECIONADO_APROVADO'
+  );
+  return hasPending;
+}
+
+export function isOverdue(dueDate: string, status: DCNStatus, isWaitingMat = false): boolean {
+  if (status === 'ENCERRADA' || isWaitingMat) return false;
+  if (!dueDate || dueDate === '-') return false;
   const today = new Date().toISOString().split('T')[0];
   return dueDate < today;
 }

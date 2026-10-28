@@ -5,7 +5,8 @@ import {
   MATERIAL_STATUS_CONFIG,
   formatDateUS,
   getDaysRemaining,
-  isOverdue
+  isOverdue,
+  isWaitingMaterials
 } from './helpers';
 
 export const STATUS_LABELS_EN: Record<DCNStatus, string> = {
@@ -310,11 +311,12 @@ export function filterDCNsForRule(
       return activeDCNs;
 
     case 'DAILY_OVERDUE':
-      return activeDCNs.filter(d => isOverdue(d.dueDate, d.status));
+      return activeDCNs.filter(d => isOverdue(d.dueDate, d.status, isWaitingMaterials(d)));
 
     case 'SLA_APPROACHING': {
       const threshold = settings.slaThresholdDays || 5;
       return activeDCNs.filter(d => {
+        if (isWaitingMaterials(d)) return false;
         const days = getDaysRemaining(d.dueDate);
         return days >= 0 && days <= threshold;
       });
@@ -468,7 +470,7 @@ export function buildNotificationEmailHTML(
 
   // Cálculo dos KPIs executivos
   const totalOpen = targetDCNs.length;
-  const totalOverdue = targetDCNs.filter(d => isOverdue(d.dueDate, d.status)).length;
+  const totalOverdue = targetDCNs.filter(d => isOverdue(d.dueDate, d.status, isWaitingMaterials(d))).length;
   const totalWaitingMaterial = targetDCNs.filter(d => d.status === 'AGUARDANDO_MATERIAL').length;
   const totalWaitingTrainingGate = targetDCNs.filter(d => d.status === 'IMPLEMENTADA').length;
   const totalNotYetImplemented = targetDCNs.filter(
@@ -567,9 +569,12 @@ export function buildNotificationEmailHTML(
           .map((dcn, index) => {
             const diag = getNonImplementationReasonDetails(dcn);
             const stLabel = STATUS_LABELS_EN[dcn.status] || STATUS_CONFIG[dcn.status]?.label || dcn.status;
+            const isWaitingMat = isWaitingMaterials(dcn);
             const days = getDaysRemaining(dcn.dueDate);
-            const overdue = isOverdue(dcn.dueDate, dcn.status);
-            const slaStatusHtml = overdue
+            const overdue = isOverdue(dcn.dueDate, dcn.status, isWaitingMat);
+            const slaStatusHtml = isWaitingMat
+              ? renderRoundedBadge('AWAITING MATERIALS', '#eff6ff', '#1e40af', '#bfdbfe', 132, 24, 10)
+              : overdue
               ? renderRoundedBadge(`OVERDUE (${Math.abs(days)}d)`, '#ffe4e6', '#be123c', '#fecdd3', 108, 24, 10)
               : days <= settings.slaThresholdDays
               ? renderRoundedBadge(`DUE IN ${days}d`, '#fef3c7', '#b45309', '#fde68a', 108, 24, 10)
@@ -652,7 +657,7 @@ export function buildNotificationEmailHTML(
                   ${formatDateUS(dcn.receivedDate)}
                 </td>
                 <td valign="middle" align="center" style="padding: 12px 10px; border: 1px solid #cbd5e1; vertical-align: middle; text-align: center; font-family: 'Segoe UI', Tahoma, Arial, sans-serif; font-size: 11px; white-space: nowrap;">
-                  <div style="font-weight: 700; color: #0f172a; margin-bottom: 4px;">${formatDateUS(dcn.dueDate)}</div>
+                  ${!isWaitingMat ? `<div style="font-weight: 700; color: #0f172a; margin-bottom: 4px;">${formatDateUS(dcn.dueDate)}</div>` : ''}
                   ${slaStatusHtml}
                 </td>
               </tr>

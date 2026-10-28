@@ -36,7 +36,7 @@ import {
 import { useDCN } from '../context/DCNContext';
 import { useAuth } from '../context/AuthContext';
 import { DCN, DCNStatus, MaterialItem, MaterialStatus, DCNAttachment } from '../types';
-import { STATUS_CONFIG, PRIORITY_CONFIG, MATERIAL_STATUS_CONFIG, formatDate, isOverdue, getDaysRemaining } from '../utils/helpers';
+import { STATUS_CONFIG, PRIORITY_CONFIG, MATERIAL_STATUS_CONFIG, formatDate, isOverdue, getDaysRemaining, isWaitingMaterials } from '../utils/helpers';
 import { api } from '../services/api';
 
 interface DCNDetailModalProps {
@@ -115,7 +115,8 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
 
   const statusConfig = STATUS_CONFIG[dcn.status];
   const priorityConfig = PRIORITY_CONFIG[dcn.priority];
-  const overdue = isOverdue(dcn.dueDate, dcn.status);
+  const waitingMat = isWaitingMaterials(dcn);
+  const overdue = isOverdue(dcn.dueDate, dcn.status, waitingMat);
 
   // Determina se a etapa de materiais deve ser exibida no fluxo
   const showMaterialStep = Boolean(
@@ -241,7 +242,7 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
               <span>Área: <strong className="text-white">{dcn.area}</strong></span>
               <span>Responsável: <strong className="text-white">{dcn.responsible}</strong></span>
               <span>Recebimento: <strong className="text-white">{formatDate(dcn.receivedDate)}</strong></span>
-              <span>Prazo Final: <strong className={`${overdue ? 'text-rose-400 font-bold' : 'text-white'}`}>{formatDate(dcn.dueDate)}</strong></span>
+              <span>Prazo Final: <strong className={`${waitingMat ? 'text-blue-300 font-semibold' : overdue ? 'text-rose-400 font-bold' : 'text-white'}`}>{waitingMat ? 'Aguardando Materiais' : formatDate(dcn.dueDate)}</strong></span>
             </div>
           </div>
 
@@ -553,8 +554,8 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
                 </div>
                 <div className="p-3 bg-white border border-slate-200 rounded-lg">
                   <p className="text-[11px] text-slate-500 font-medium">Data Limite (SLA)</p>
-                  <p className={`text-sm font-bold mt-0.5 ${overdue ? 'text-rose-600' : 'text-slate-900'}`}>
-                    {formatDate(dcn.dueDate)} {overdue && '(Excedido)'}
+                  <p className={`text-sm font-bold mt-0.5 ${waitingMat ? 'text-blue-600' : overdue ? 'text-rose-600' : 'text-slate-900'}`}>
+                    {waitingMat ? 'Aguardando Materiais' : `${formatDate(dcn.dueDate)} ${overdue ? '(Excedido)' : ''}`}
                   </p>
                 </div>
                 <div 

@@ -24,7 +24,7 @@ import {
 } from 'lucide-react';
 import { useDCN } from '../context/DCNContext';
 import { DCN, DCNStatus } from '../types';
-import { STATUS_CONFIG, PRIORITY_CONFIG, formatDate, isOverdue, getDaysRemaining } from '../utils/helpers';
+import { STATUS_CONFIG, PRIORITY_CONFIG, formatDate, isOverdue, getDaysRemaining, isWaitingMaterials } from '../utils/helpers';
 
 interface DCNManagementProps {
   onSelectDCN: (id: string) => void;
@@ -280,7 +280,8 @@ export const DCNManagement: React.FC<DCNManagementProps> = ({ onSelectDCN, onOpe
                   sortedDCNs.map((dcn) => {
                     const statusConfig = STATUS_CONFIG[dcn.status];
                     const priorityConfig = PRIORITY_CONFIG[dcn.priority];
-                    const overdue = isOverdue(dcn.dueDate, dcn.status);
+                    const isWaitingMat = isWaitingMaterials(dcn);
+                    const overdue = isOverdue(dcn.dueDate, dcn.status, isWaitingMat);
                     const daysLeft = getDaysRemaining(dcn.dueDate);
 
                     return (
@@ -347,19 +348,27 @@ export const DCNManagement: React.FC<DCNManagementProps> = ({ onSelectDCN, onOpe
                         {/* Due Date & SLA */}
                         <td className="py-3.5 px-3 whitespace-nowrap">
                           <div className="flex flex-col">
-                            <span className={`font-semibold ${overdue ? 'text-rose-600' : 'text-slate-700'}`}>
-                              {formatDate(dcn.dueDate)}
-                            </span>
-                            {dcn.status !== 'ENCERRADA' && (
-                              <span className={`text-[10px] ${
-                                overdue 
-                                  ? 'text-rose-600 font-bold' 
-                                  : daysLeft <= 3 
-                                  ? 'text-amber-600 font-medium' 
-                                  : 'text-slate-400'
-                              }`}>
-                                {overdue ? `Atrasado ${Math.abs(daysLeft)} dias` : `${daysLeft} dias restantes`}
+                            {isWaitingMat ? (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold bg-blue-50 text-blue-700 border border-blue-200 w-fit">
+                                Aguard. Materiais
                               </span>
+                            ) : (
+                              <>
+                                <span className={`font-semibold ${overdue ? 'text-rose-600' : 'text-slate-700'}`}>
+                                  {formatDate(dcn.dueDate)}
+                                </span>
+                                {dcn.status !== 'ENCERRADA' && (
+                                  <span className={`text-[10px] ${
+                                    overdue 
+                                      ? 'text-rose-600 font-bold' 
+                                      : daysLeft <= 3 
+                                      ? 'text-amber-600 font-medium' 
+                                      : 'text-slate-400'
+                                  }`}>
+                                    {overdue ? `Atrasado ${Math.abs(daysLeft)} dias` : `${daysLeft} dias restantes`}
+                                  </span>
+                                )}
+                              </>
                             )}
                           </div>
                         </td>
@@ -476,7 +485,8 @@ export const DCNManagement: React.FC<DCNManagementProps> = ({ onSelectDCN, onOpe
                   ) : (
                     colDCNs.map((dcn) => {
                       const priorityConfig = PRIORITY_CONFIG[dcn.priority];
-                      const overdue = isOverdue(dcn.dueDate, dcn.status);
+                      const isWaitingMat = isWaitingMaterials(dcn);
+                      const overdue = isOverdue(dcn.dueDate, dcn.status, isWaitingMat);
 
                       return (
                         <div
@@ -530,8 +540,8 @@ export const DCNManagement: React.FC<DCNManagementProps> = ({ onSelectDCN, onOpe
                               )}
                             </div>
 
-                            <span className={`font-medium ${overdue ? 'text-rose-600 font-bold' : 'text-slate-500'}`}>
-                              {formatDate(dcn.dueDate)}
+                            <span className={`font-medium ${isWaitingMat ? 'text-blue-700 font-semibold' : overdue ? 'text-rose-600 font-bold' : 'text-slate-500'}`}>
+                              {isWaitingMat ? 'Aguard. Materiais' : formatDate(dcn.dueDate)}
                             </span>
                           </div>
 

@@ -17,7 +17,7 @@ import {
 } from 'lucide-react';
 import { useDCN } from '../context/DCNContext';
 import { useAuth } from '../context/AuthContext';
-import { exportDCNsToCSV, getDaysRemaining, isOverdue, formatDate } from '../utils/helpers';
+import { exportDCNsToCSV, getDaysRemaining, isOverdue, formatDate, isWaitingMaterials } from '../utils/helpers';
 import { DCNLogo } from './DCNLogo';
 import { AppNavTab } from './Sidebar';
 
@@ -43,8 +43,9 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({
 
   const alertSummary = useMemo(() => {
     const active = dcns.filter(d => d.status !== 'ENCERRADA');
-    const overdueList = active.filter(d => isOverdue(d.dueDate, d.status));
+    const overdueList = active.filter(d => isOverdue(d.dueDate, d.status, isWaitingMaterials(d)));
     const approachingList = active.filter(d => {
+      if (isWaitingMaterials(d)) return false;
       const days = getDaysRemaining(d.dueDate);
       return days >= 0 && days <= 5;
     });

@@ -5,7 +5,7 @@ import { INITIAL_TECHNICIANS, LEGACY_DEMO_TECH_IDS, LEGACY_DEMO_TECH_BADGES } fr
 import confetti from 'canvas-confetti';
 import { api } from '../services/api';
 import { useAuth } from './AuthContext';
-import { addBusinessDays, formatDate } from '../utils/helpers';
+import { addBusinessDays, formatDate, isOverdue, isWaitingMaterials } from '../utils/helpers';
 
 interface DCNStats {
 
@@ -264,9 +264,7 @@ export const DCNProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
       // Overdue
       if (filters.overdueOnly) {
-        const isClosed = dcn.status === 'ENCERRADA';
-        const isPastDue = dcn.dueDate < today;
-        if (isClosed || !isPastDue) return false;
+        if (!isOverdue(dcn.dueDate, dcn.status, isWaitingMaterials(dcn))) return false;
       }
 
       // Date Range
@@ -305,7 +303,7 @@ export const DCNProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       }
 
       // Overdue check
-      if (dcn.status !== 'ENCERRADA' && dcn.dueDate < today) {
+      if (isOverdue(dcn.dueDate, dcn.status, isWaitingMaterials(dcn))) {
         overdue++;
       }
 

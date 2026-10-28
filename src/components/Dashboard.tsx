@@ -35,7 +35,7 @@ import {
   Legend 
 } from 'recharts';
 import { useDCN } from '../context/DCNContext';
-import { STATUS_CONFIG, formatDate, isOverdue } from '../utils/helpers';
+import { STATUS_CONFIG, formatDate, isOverdue, isWaitingMaterials } from '../utils/helpers';
 import { DCNStatus } from '../types';
 import { AppNavTab } from './Sidebar';
 import { HeroActionHub } from './HeroActionHub';
@@ -155,7 +155,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
   // Critical / Overdue DCNs
   const urgentDCNs = useMemo(() => {
-    return dcns.filter(d => d.status !== 'ENCERRADA' && (d.priority === 'CRITICA' || isOverdue(d.dueDate, d.status))).slice(0, 4);
+    return dcns.filter(d => d.status !== 'ENCERRADA' && (d.priority === 'CRITICA' || isOverdue(d.dueDate, d.status, isWaitingMaterials(d)))).slice(0, 4);
   }, [dcns]);
 
   const handleCardClick = (status: DCNStatus) => {
@@ -566,7 +566,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
           <div className="divide-y divide-slate-100">
             {urgentDCNs.map(dcn => {
-              const overdue = isOverdue(dcn.dueDate, dcn.status);
+              const overdue = isOverdue(dcn.dueDate, dcn.status, isWaitingMaterials(dcn));
               const config = STATUS_CONFIG[dcn.status];
               return (
                 <div 
