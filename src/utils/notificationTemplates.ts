@@ -133,7 +133,7 @@ export function getNonImplementationReasonDetails(dcn: DCN): NonImplementationDi
         stageLabel,
         reasonHeadline: 'Não implementada: Em análise de viabilidade técnica e levantamento de requisitos pela Engenharia.',
         reasonDetails: details,
-        actionRequired: `Concluir a avaliação técnica e avançar a DCN para "Aguardando Material" (caso exija suprimentos) ou "Pronta p/ Implementação".`,
+        actionRequired: `Concluir a avaliação técnica e avançar a DCN para "Aguardando Material" (caso exija suprimentos) ou "Aguardando Treinamento".`,
         severityColor: {
           bg: '#fffbeb',
           border: '#fcd34d',
@@ -188,7 +188,7 @@ export function getNonImplementationReasonDetails(dcn: DCN): NonImplementationDi
         actionRequired:
           pendingMaterials.length > 0
             ? 'Acompanhar entrega junto a Compras/Almoxarifado e atualizar o status dos itens para "Recebido em Estoque" assim que derem entrada física.'
-            : 'Materiais disponíveis em estoque — avançar imediatamente a DCN para "4. Pronta p/ Implementação".',
+            : 'Materiais disponíveis em estoque — avançar imediatamente a DCN para "4. Aguardando Treinamento".',
         severityColor: {
           bg: '#eff6ff',
           border: '#93c5fd',

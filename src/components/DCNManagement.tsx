@@ -73,7 +73,7 @@ export const DCNManagement: React.FC<DCNManagementProps> = ({ onSelectDCN, onOpe
     { status: 'RECEBIDA', title: '1. Recebidas', step: 1 },
     { status: 'EM_AVALIACAO', title: '2. Em Avaliação', step: 2 },
     { status: 'AGUARDANDO_MATERIAL', title: '3. Aguardando Material', step: 3 },
-    { status: 'PRONTA_IMPLEMENTACAO', title: '4. Prontas p/ Impl.', step: 4 },
+    { status: 'PRONTA_IMPLEMENTACAO', title: '4. Aguardando Treinamento', step: 4 },
     { status: 'IMPLEMENTADA', title: '5. Implementadas', step: 5 },
     { status: 'ENCERRADA', title: '6. Encerradas', step: 6 }
   ];
@@ -160,7 +160,7 @@ export const DCNManagement: React.FC<DCNManagementProps> = ({ onSelectDCN, onOpe
               <option value="RECEBIDA">1. Recebida</option>
               <option value="EM_AVALIACAO">2. Em Avaliação</option>
               <option value="AGUARDANDO_MATERIAL">3. Aguardando Material</option>
-              <option value="PRONTA_IMPLEMENTACAO">4. Pronta p/ Impl.</option>
+              <option value="PRONTA_IMPLEMENTACAO">4. Aguardando Treinamento</option>
               <option value="IMPLEMENTADA">5. Implementada</option>
               <option value="ENCERRADA">6. Encerrada</option>
             </select>

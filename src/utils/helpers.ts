@@ -37,13 +37,13 @@ export const STATUS_CONFIG: Record<DCNStatus, {
     description: 'Requisição de compra ou amostras emitida. Aguardando entrega pelo fornecedor.'
   },
   PRONTA_IMPLEMENTACAO: {
-    label: 'Pronta p/ Implementação',
+    label: 'Aguardando Treinamento',
     step: 4,
     badgeBg: 'bg-indigo-50 dark:bg-indigo-950/40',
     badgeText: 'text-indigo-800 dark:text-indigo-300',
     badgeBorder: 'border-indigo-300 dark:border-indigo-700/60',
     dotColor: 'bg-indigo-500',
-    description: 'Materiais em estoque e documentos revisados. Pronta para setup em fábrica.'
+    description: 'Materiais em estoque. Aguardando realização do treinamento com a equipe técnica.'
   },
   IMPLEMENTADA: {
     label: 'Implementada',

@@ -99,7 +99,7 @@ export const SearchExportView: React.FC<SearchExportViewProps> = ({ onSelectDCN,
               <option value="RECEBIDA">1. Recebida</option>
               <option value="EM_AVALIACAO">2. Em Avaliação</option>
               <option value="AGUARDANDO_MATERIAL">3. Aguardando Material</option>
-              <option value="PRONTA_IMPLEMENTACAO">4. Pronta para Impl.</option>
+              <option value="PRONTA_IMPLEMENTACAO">4. Aguardando Treinamento</option>
               <option value="IMPLEMENTADA">5. Implementada</option>
               <option value="ENCERRADA">6. Encerrada</option>
             </select>

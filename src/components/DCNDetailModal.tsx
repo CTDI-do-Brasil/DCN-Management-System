@@ -108,7 +108,7 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
     { status: 'RECEBIDA', label: '1. Recebimento', stepNumber: 1 },
     { status: 'EM_AVALIACAO', label: '2. Avaliação Técnica', stepNumber: 2 },
     { status: 'AGUARDANDO_MATERIAL', label: '3. Materiais', stepNumber: 3 },
-    { status: 'PRONTA_IMPLEMENTACAO', label: '4. Pronta p/ Impl.', stepNumber: 4 },
+    { status: 'PRONTA_IMPLEMENTACAO', label: '4. Aguardando Treinamento', stepNumber: 4 },
     { status: 'IMPLEMENTADA', label: '5. Implementação', stepNumber: 5 },
     { status: 'ENCERRADA', label: '6. Encerramento', stepNumber: 6 }
   ];
@@ -1329,7 +1329,7 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
                   <option value="RECEBIDA">1. Recebida</option>
                   <option value="EM_AVALIACAO">2. Em Avaliação</option>
                   <option value="AGUARDANDO_MATERIAL">3. Aguardando Material</option>
-                  <option value="PRONTA_IMPLEMENTACAO">4. Pronta para Implementação</option>
+                  <option value="PRONTA_IMPLEMENTACAO">4. Aguardando Treinamento</option>
                 </select>
               </div>
 

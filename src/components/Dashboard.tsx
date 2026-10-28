@@ -109,7 +109,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
       { name: 'Recebidas', value: stats.receivedCount, status: 'RECEBIDA', color: STATUS_COLORS.RECEBIDA },
       { name: 'Em Avaliação', value: stats.inReviewCount, status: 'EM_AVALIACAO', color: STATUS_COLORS.EM_AVALIACAO },
       { name: 'Aguard. Material', value: stats.awaitingMaterialCount, status: 'AGUARDANDO_MATERIAL', color: STATUS_COLORS.AGUARDANDO_MATERIAL },
-      { name: 'Prontas Implementação', value: stats.readyForImplementationCount, status: 'PRONTA_IMPLEMENTACAO', color: STATUS_COLORS.PRONTA_IMPLEMENTACAO },
+      { name: 'Aguardando Treinamento', value: stats.readyForImplementationCount, status: 'PRONTA_IMPLEMENTACAO', color: STATUS_COLORS.PRONTA_IMPLEMENTACAO },
       { name: 'Implementadas', value: stats.implementedCount, status: 'IMPLEMENTADA', color: STATUS_COLORS.IMPLEMENTADA },
       { name: 'Encerradas', value: stats.closedCount, status: 'ENCERRADA', color: STATUS_COLORS.ENCERRADA }
     ].filter(item => item.value > 0);
@@ -243,21 +243,21 @@ export const Dashboard: React.FC<DashboardProps> = ({
             </div>
           </div>
 
-          {/* Card 4: Prontas para Implementação */}
+          {/* Card 4: Aguardando Treinamento */}
           <div 
             onClick={() => handleCardClick('PRONTA_IMPLEMENTACAO')}
             className="bg-sky-50/40 p-3.5 rounded-xl border border-sky-200 hover:border-[#00386e] hover:bg-white hover:shadow-md transition-all cursor-pointer group relative overflow-hidden"
           >
             <div className="w-1 h-full absolute left-0 top-0 bg-[#00386e]"></div>
             <div className="flex items-center justify-between">
-              <span className="text-[11px] font-semibold text-[#00386e]">4. Prontas Impl.</span>
+              <span className="text-[11px] font-semibold text-[#00386e]">4. Aguard. Treinamento</span>
               <div className="w-6 h-6 rounded-lg bg-sky-100 text-[#00386e] flex items-center justify-center group-hover:scale-110 transition-transform">
                 <PlayCircle className="w-3.5 h-3.5" />
               </div>
             </div>
             <div className="mt-2 flex items-baseline justify-between">
               <span className="text-2xl font-black text-slate-900">{stats.readyForImplementationCount}</span>
-              <span className="text-[10px] text-[#00386e] font-medium">Fábrica OK</span>
+              <span className="text-[10px] text-[#00386e] font-medium">Treinamento Pendente</span>
             </div>
           </div>
 
