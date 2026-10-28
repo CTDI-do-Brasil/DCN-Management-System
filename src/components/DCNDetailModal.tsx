@@ -143,6 +143,9 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
   );
   const isBlockedByMaterials = dcn.status === 'AGUARDANDO_MATERIAL' && !allMaterialsReady;
 
+  const hasScheduledTraining = Boolean(dcn.training?.scheduledDate && dcn.training.scheduledDate.trim());
+  const isBlockedByTrainingSchedule = dcn.status === 'PRONTA_IMPLEMENTACAO' && !hasScheduledTraining;
+
   const trainingAttendees = dcn.training?.attendeesList || [];
   const hasTrainingAttendees = trainingAttendees.length > 0;
   const isBlockedByTrainingAttendees = dcn.status === 'IMPLEMENTADA' && !hasTrainingAttendees;
@@ -153,7 +156,11 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
       (att.type === 'PDF' || att.name.toLowerCase().endsWith('.pdf'))
   );
   const isBlockedByTrainingPdf = dcn.status === 'IMPLEMENTADA' && !hasTrainingPdf;
-  const isBlockedToAdvance = isBlockedByMaterials || isBlockedByTrainingAttendees || isBlockedByTrainingPdf;
+  const isBlockedToAdvance =
+    isBlockedByMaterials ||
+    isBlockedByTrainingSchedule ||
+    isBlockedByTrainingAttendees ||
+    isBlockedByTrainingPdf;
 
   const allChecklistCompleted = dcn.implementationChecklist.filter(c => c.mandatory).every(c => c.completed);
   const trainingCompleted = !dcn.needsTraining || dcn.training?.status === 'CONCLUIDO';
@@ -351,6 +358,17 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
                         Exige todos os materiais "Recebido em Estoque"
                       </button>
                     )}
+                    {isBlockedByTrainingSchedule && (
+                      <button
+                        type="button"
+                        onClick={() => setActiveTab('treinamento')}
+                        className="inline-flex items-center px-2.5 py-1 rounded-md text-[11px] font-semibold bg-amber-50 text-amber-800 border border-amber-300 hover:bg-amber-100 transition-colors cursor-pointer"
+                        title="Clique para ir até a aba Treinamento e agendar a data"
+                      >
+                        <AlertTriangle className="w-3.5 h-3.5 mr-1 text-amber-600 shrink-0" />
+                        Exige Data de Treinamento Agendada
+                      </button>
+                    )}
                     {isBlockedByTrainingAttendees && (
                       <button
                         type="button"
@@ -383,6 +401,8 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
                       title={
                         isBlockedByMaterials
                           ? 'Todos os materiais precisam estar com status "Recebido em Estoque" para avançar de etapa'
+                          : isBlockedByTrainingSchedule
+                          ? 'É necessário definir a data em que o treinamento está agendado na aba Treinamento antes de avançar para a etapa "5. Implementação"'
                           : isBlockedByTrainingAttendees
                           ? 'É necessário que haja Colaboradores Assinados na Ata de Treinamento em Matriz de Treinamento'
                           : isBlockedByTrainingPdf
@@ -810,6 +830,12 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
                         <p className="text-[11px] text-slate-500">
                           Informe a data em que o treinamento presencial/prático será realizado com os operadores e técnicos.
                         </p>
+                        {isBlockedByTrainingSchedule && (
+                          <p className="text-[11px] font-semibold text-amber-700 flex items-center mt-1">
+                            <AlertTriangle className="w-3.5 h-3.5 mr-1 text-amber-600 shrink-0" />
+                            Obrigatório definir a data para liberar o avanço para a etapa "5. Implementação".
+                          </p>
+                        )}
                       </div>
                     </div>
                   </div>

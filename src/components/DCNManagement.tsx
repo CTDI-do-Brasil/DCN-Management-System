@@ -542,6 +542,10 @@ export const DCNManagement: React.FC<DCNManagementProps> = ({ onSelectDCN, onOpe
                               dcn.needsMaterial &&
                               (dcn.materials.length === 0 || !dcn.materials.every(m => m.status === 'RECEBIDO_ESTOQUE'));
 
+                            const blockedByTrainingSchedule =
+                              dcn.status === 'PRONTA_IMPLEMENTACAO' &&
+                              !(dcn.training?.scheduledDate && dcn.training.scheduledDate.trim());
+
                             const trainingAttendees = dcn.training?.attendeesList || [];
                             const hasTrainingAttendees = trainingAttendees.length > 0;
                             const blockedByTrainingAttendees =
@@ -554,7 +558,10 @@ export const DCNManagement: React.FC<DCNManagementProps> = ({ onSelectDCN, onOpe
                             );
                             const blockedByTrainingPdf = dcn.status === 'IMPLEMENTADA' && !hasTrainingPdf;
                             const isBlocked =
-                              blockedByMaterials || blockedByTrainingAttendees || blockedByTrainingPdf;
+                              blockedByMaterials ||
+                              blockedByTrainingSchedule ||
+                              blockedByTrainingAttendees ||
+                              blockedByTrainingPdf;
 
                             return (
                               <button
@@ -566,6 +573,8 @@ export const DCNManagement: React.FC<DCNManagementProps> = ({ onSelectDCN, onOpe
                                 title={
                                   blockedByMaterials
                                     ? 'Todos os materiais precisam estar com status "Recebido em Estoque" para avançar'
+                                    : blockedByTrainingSchedule
+                                    ? 'É necessário definir a data de agendamento na aba Treinamento para avançar para a Implementação'
                                     : blockedByTrainingAttendees
                                     ? 'É necessário que haja Colaboradores Assinados na Ata de Treinamento em Matriz de Treinamento'
                                     : blockedByTrainingPdf
@@ -581,6 +590,8 @@ export const DCNManagement: React.FC<DCNManagementProps> = ({ onSelectDCN, onOpe
                                 <span>
                                   {blockedByMaterials
                                     ? 'Aguardando Receb. Estoque'
+                                    : blockedByTrainingSchedule
+                                    ? 'Aguardando Agend. Treinamento'
                                     : blockedByTrainingAttendees
                                     ? 'Aguardando Ata Assinada'
                                     : blockedByTrainingPdf

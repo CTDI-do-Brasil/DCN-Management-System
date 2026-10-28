@@ -627,6 +627,13 @@ app.put('/api/dcns/:id', async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'DCN not found' });
     }
 
+    if (fields.status === 'IMPLEMENTADA' && currentDCN.status === 'PRONTA_IMPLEMENTACAO') {
+      const training = await prisma.trainingRecord.findUnique({ where: { dcnId: id } });
+      if (!training?.scheduledDate || !training.scheduledDate.trim()) {
+        return res.status(400).json({ error: 'O treinamento precisa estar agendado antes de avançar para a etapa de Implementação.' });
+      }
+    }
+
     const updated = await prisma.$transaction(async (tx) => {
       // Create audit entry if status changed or comment provided
       if (auditComment || (fields.status && fields.status !== currentDCN.status)) {

@@ -665,6 +665,10 @@ export const DCNProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
             nextStatus = 'PRONTA_IMPLEMENTACAO';
             break;
           case 'PRONTA_IMPLEMENTACAO':
+            // Se o treinamento não estiver agendado, não permitir avançar para IMPLEMENTADA
+            if (!dcn.training?.scheduledDate || !dcn.training.scheduledDate.trim()) {
+              return dcn;
+            }
             nextStatus = 'IMPLEMENTADA';
             break;
           case 'IMPLEMENTADA':
@@ -672,6 +676,10 @@ export const DCNProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
             break;
           default:
             nextStatus = dcn.status;
+        }
+      } else if (targetStatus === 'IMPLEMENTADA' && dcn.status === 'PRONTA_IMPLEMENTACAO') {
+        if (!dcn.training?.scheduledDate || !dcn.training.scheduledDate.trim()) {
+          return dcn;
         }
       }
 
