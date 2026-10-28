@@ -200,39 +200,20 @@ export function getNonImplementationReasonDetails(dcn: DCN): NonImplementationDi
     }
 
     case 'PRONTA_IMPLEMENTACAO': {
-      const details: string[] = [];
+      const scheduledDateFormatted = dcn.training?.scheduledDate
+        ? formatDate(dcn.training.scheduledDate)
+        : null;
 
-      // Apenas menciona materiais se a DCN realmente possuir materiais
-      const hasMaterials = Boolean(dcn.needsMaterial || (dcn.materials && dcn.materials.length > 0));
-      if (hasMaterials) {
-        details.push(
-          'Todos os materiais e pré-requisitos de engenharia já estão liberados em estoque, porém a mudança ainda não foi efetivada fisicamente no processo produtivo.'
-        );
-      }
-
-      const attendeeCount = (dcn.training?.attendeesList || []).length;
-      if (dcn.training?.scheduledDate) {
-        details.push(
-          `<strong>Data de Treinamento Agendada:</strong> ${formatDate(dcn.training.scheduledDate)} (definida na aba Treinamento)${attendeeCount > 0 ? ` • ${attendeeCount} colaborador(es) na ata` : ''}.`
-        );
-      } else if (dcn.needsTraining) {
-        details.push(
-          attendeeCount === 0
-            ? 'Treinamento operacional obrigatório ainda não agendado na aba Treinamento.'
-            : `Treinamento em preparação (${attendeeCount} colaborador(es) pré-listado(s) na ata, pendente de agendamento de data).`
-        );
-      }
-
-      const headline = dcn.training?.scheduledDate
-        ? `Não implementada em linha: Aguardando treinamento agendado para ${formatDate(dcn.training.scheduledDate)}.`
-        : 'Não implementada em linha: Pronta tecnicamente, aguardando execução do setup operacional e treinamento.';
+      const headline = scheduledDateFormatted
+        ? `Data de Treinamento Agendada: ${scheduledDateFormatted}.`
+        : 'Data de Treinamento: Não agendada.';
 
       return {
         stageLabel,
         reasonHeadline: headline,
-        reasonDetails: details,
-        actionRequired: dcn.training?.scheduledDate
-          ? `Conduzir o treinamento na data agendada (${formatDate(dcn.training.scheduledDate)}), colher as assinaturas na ata e avançar a DCN para Implementada.`
+        reasonDetails: [],
+        actionRequired: scheduledDateFormatted
+          ? `Conduzir o treinamento na data agendada (${scheduledDateFormatted}), colher as assinaturas na ata e avançar a DCN para Implementada.`
           : `Definir a data do treinamento na aba Treinamento, capacitar os operadores/técnicos da área (${dcn.area}) e avançar para a Etapa 5 (Implementada).`,
         severityColor: {
           bg: '#eef2ff',
@@ -629,14 +610,6 @@ export function buildNotificationEmailHTML(
                 ? '<span style="color:#b45309;">Aguard. ETA</span>'
                 : '<span style="color:#94a3b8;">N/A</span>';
 
-            // Destaque de data de treinamento agendado para DCNs que estão Aguardando Treinamento
-            const trainingEtaSnippet =
-              dcn.status === 'PRONTA_IMPLEMENTACAO' && dcn.training?.scheduledDate
-                ? `<div style="margin-top: 5px; padding: 3px 6px; background-color: #e0e7ff; border: 1px solid #c7d2fe; border-radius: 4px; font-size: 10px; font-weight: 700; color: #3730a3; white-space: nowrap;" title="Data agendada na aba Treinamento">
-                    🗓️ Trein: ${formatDate(dcn.training.scheduledDate)}
-                   </div>`
-                : '';
-
             // Coluna Observation (Razão da não implementação + detalhes de bloqueio)
             const observationDetails =
               diag.reasonDetails.length > 0 ? `<div style="margin-top:3px; color:#475569; font-size:11px;">${diag.reasonDetails.join('<br/>')}</div>` : '';
@@ -669,7 +642,6 @@ export function buildNotificationEmailHTML(
                 </td>
                 <td valign="middle" style="padding: 12px 10px; border: 1px solid #cbd5e1; vertical-align: middle; text-align: center; font-family: 'Segoe UI', Tahoma, Arial, sans-serif; font-size: 11px; white-space: nowrap;">
                   ${materialsEtaHtml}
-                  ${trainingEtaSnippet}
                 </td>
                 <td valign="middle" style="padding: 12px 10px; border: 1px solid #cbd5e1; vertical-align: middle; text-align: center; font-family: 'Segoe UI', Tahoma, Arial, sans-serif; font-size: 11px; font-weight: 600; color: #334155; white-space: nowrap;">
                   ${formatDate(dcn.receivedDate)}
