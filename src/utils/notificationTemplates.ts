@@ -441,7 +441,7 @@ export function buildNotificationEmailHTML(
       accentColor = '#002a54';
       badgeLabel = 'CTDI DO BRASIL RELATÓRIO SEMANAL DCN CONTROL';
       introParagraph =
-        'Prezados Responsáveis e Equipe de Gestão,<br/><br/>Apresentamos abaixo a posição consolidada das <strong>Notificações de Mudança de Documento (DCNs)</strong> que permanecem <strong>em aberto (não encerradas)</strong> no fluxo de Engenharia e Qualidade da CTDI do Brasil. Para cada documento listado, consta o diagnóstico detalhado da <strong>razão pela qual a mudança ainda não foi implementada ou encerrada</strong>, bem como a ação requerida para regularização.';
+        'Prezados(as),<br/><br/>Apresentamos abaixo a posição consolidada das <strong>Notificações de Mudança de Documento (DCNs)</strong> que permanecem <strong>em aberto (não encerradas)</strong> no fluxo de Engenharia e Qualidade da CTDI do Brasil. Para cada documento listado, consta o diagnóstico detalhado da <strong>razão pela qual a mudança ainda não foi implementada ou encerrada</strong>, bem como a ação requerida para regularização.';
       subject = `[CTDI • Gestão de DCNs] Relatório de DCN(s) Pendentes(s) - ${sendDateShort}`;
       break;
 
