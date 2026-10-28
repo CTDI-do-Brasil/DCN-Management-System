@@ -138,6 +138,40 @@ export function formatDate(dateString?: string): string {
   return dateString;
 }
 
+export function formatDateUS(dateString?: string): string {
+  if (!dateString) return '-';
+  const clean = dateString.split('T')[0].split(' ')[0].trim();
+  const parts = clean.split('-');
+  if (parts.length === 3) {
+    const y = parts[0].length === 4 ? parts[0].slice(-2) : parts[0];
+    const m = parts[1].padStart(2, '0');
+    const d = parts[2].padStart(2, '0');
+    return `${m}/${d}/${y}`;
+  }
+  const slashParts = clean.split('/');
+  if (slashParts.length === 3) {
+    if (slashParts[0].length === 4) {
+      const y = slashParts[0].slice(-2);
+      const m = slashParts[1].padStart(2, '0');
+      const d = slashParts[2].padStart(2, '0');
+      return `${m}/${d}/${y}`;
+    } else if (slashParts[2].length === 4 || slashParts[2].length === 2) {
+      const d = slashParts[0].padStart(2, '0');
+      const m = slashParts[1].padStart(2, '0');
+      const y = slashParts[2].slice(-2);
+      return `${m}/${d}/${y}`;
+    }
+  }
+  const dt = new Date(dateString);
+  if (!isNaN(dt.getTime())) {
+    const mm = String(dt.getMonth() + 1).padStart(2, '0');
+    const dd = String(dt.getDate()).padStart(2, '0');
+    const yy = String(dt.getFullYear()).slice(-2);
+    return `${mm}/${dd}/${yy}`;
+  }
+  return dateString;
+}
+
 export function isOverdue(dueDate: string, status: DCNStatus): boolean {
   if (status === 'ENCERRADA') return false;
   const today = new Date().toISOString().split('T')[0];

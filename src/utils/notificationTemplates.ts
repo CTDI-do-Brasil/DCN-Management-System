@@ -3,7 +3,7 @@ import {
   STATUS_CONFIG,
   PRIORITY_CONFIG,
   MATERIAL_STATUS_CONFIG,
-  formatDate,
+  formatDateUS,
   getDaysRemaining,
   isOverdue
 } from './helpers';
@@ -182,7 +182,7 @@ export function getNonImplementationReasonDetails(dcn: DCN): NonImplementationDi
             INSPECIONADO_APROVADO: 'Inspected & Approved by QC'
           };
           const matStatus = matStatusMap[m.status] || MATERIAL_STATUS_CONFIG[m.status]?.label || m.status;
-          const prevStr = m.expectedDate ? ` | Expected Arrival: ${formatDate(m.expectedDate)}` : '';
+          const prevStr = m.expectedDate ? ` | Expected Arrival: ${formatDateUS(m.expectedDate)}` : '';
           const suppStr = m.supplier ? ` | Supplier: ${m.supplier}` : '';
           const noteStr = m.notes ? ` — Obs: ${m.notes}` : '';
           details.push(
@@ -218,7 +218,7 @@ export function getNonImplementationReasonDetails(dcn: DCN): NonImplementationDi
 
     case 'PRONTA_IMPLEMENTACAO': {
       const scheduledDateFormatted = dcn.training?.scheduledDate
-        ? formatDate(dcn.training.scheduledDate)
+        ? formatDateUS(dcn.training.scheduledDate)
         : null;
 
       const headline = scheduledDateFormatted
@@ -619,7 +619,7 @@ export function buildNotificationEmailHTML(
                         return '<div style="color:#15803d; font-weight:700;">Received</div>';
                       }
                       return `<div style="font-weight:600; color:#1e40af;">${
-                        m.expectedDate ? formatDate(m.expectedDate) : 'No ETA'
+                        m.expectedDate ? formatDateUS(m.expectedDate) : 'No ETA'
                       }</div>`;
                     })
                     .join('')
@@ -661,10 +661,10 @@ export function buildNotificationEmailHTML(
                   ${materialsEtaHtml}
                 </td>
                 <td valign="middle" style="padding: 12px 10px; border: 1px solid #cbd5e1; vertical-align: middle; text-align: center; font-family: 'Segoe UI', Tahoma, Arial, sans-serif; font-size: 11px; font-weight: 600; color: #334155; white-space: nowrap;">
-                  ${formatDate(dcn.receivedDate)}
+                  ${formatDateUS(dcn.receivedDate)}
                 </td>
                 <td valign="middle" align="center" style="padding: 12px 10px; border: 1px solid #cbd5e1; vertical-align: middle; text-align: center; font-family: 'Segoe UI', Tahoma, Arial, sans-serif; font-size: 11px; white-space: nowrap;">
-                  <div style="font-weight: 700; color: #0f172a; margin-bottom: 4px;">${formatDate(dcn.dueDate)}</div>
+                  <div style="font-weight: 700; color: #0f172a; margin-bottom: 4px;">${formatDateUS(dcn.dueDate)}</div>
                   ${slaStatusHtml}
                 </td>
               </tr>
