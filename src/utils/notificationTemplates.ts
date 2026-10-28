@@ -127,22 +127,10 @@ export function getNonImplementationReasonDetails(dcn: DCN): NonImplementationDi
     }
 
     case 'EM_AVALIACAO': {
-      const details: string[] = [
-        'The DCN is currently in the Engineering Evaluation phase (Stage 2/6) without release for shop floor implementation.'
-      ];
-      if (dcn.engineeringReview?.technicalImpact) {
-        details.push(`Technical impact identified: ${dcn.engineeringReview.technicalImpact}`);
-      } else {
-        details.push('Engineering technical assessment and risk mapping have not yet been completed.');
-      }
-      if (dcn.needsMaterial && (!dcn.materials || dcn.materials.length === 0)) {
-        details.push('The DCN indicates need for materials/supplies, but BOM items are still being surveyed/registered.');
-      }
-
       return {
         stageLabel,
-        reasonHeadline: 'Not implemented: Under technical feasibility analysis and requirement gathering by Engineering.',
-        reasonDetails: details,
+        reasonHeadline: 'Not implemented: Under technical analysis and requirement gathering by Zebra Engineering.',
+        reasonDetails: [],
         actionRequired: `Complete technical evaluation and advance DCN to "Awaiting Material" (if supplies are required) or "Awaiting Training".`,
         severityColor: {
           bg: '#fffbeb',
