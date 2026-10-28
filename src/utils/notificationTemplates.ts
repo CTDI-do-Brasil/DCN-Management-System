@@ -200,15 +200,13 @@ export function getNonImplementationReasonDetails(dcn: DCN): NonImplementationDi
     }
 
     case 'PRONTA_IMPLEMENTACAO': {
-      const pendingChecklist = (dcn.implementationChecklist || []).filter(c => !c.completed);
-      const details: string[] = [
-        'Todos os materiais e pré-requisitos de engenharia já estão liberados, porém a mudança ainda não foi efetivada fisicamente no processo produtivo.'
-      ];
-      if (pendingChecklist.length > 0) {
+      const details: string[] = [];
+
+      // Apenas menciona materiais se a DCN realmente possuir materiais
+      const hasMaterials = Boolean(dcn.needsMaterial || (dcn.materials && dcn.materials.length > 0));
+      if (hasMaterials) {
         details.push(
-          `Itens de verificação pendentes antes da entrada em linha (${pendingChecklist.length}): ${pendingChecklist
-            .map(c => c.title)
-            .join('; ')}.`
+          'Todos os materiais e pré-requisitos de engenharia já estão liberados em estoque, porém a mudança ainda não foi efetivada fisicamente no processo produtivo.'
         );
       }
 
