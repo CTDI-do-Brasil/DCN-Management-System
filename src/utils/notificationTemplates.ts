@@ -439,7 +439,7 @@ export function buildNotificationEmailHTML(
       headerTitle = 'Relatório de DCNs Pendentes';
       subtitle = 'Acompanhamento Semanal de Implementação de DCNs';
       accentColor = '#002a54';
-      badgeLabel = 'CTDI DO BRASIL RELATÓRIO SEMANAL DCN CONTROL';
+      badgeLabel = 'CTDI DO BRASIL - RELATÓRIO SEMANAL - DCN CONTROL';
       introParagraph =
         'Prezados(as),<br/><br/>Segue abaixo a consolidação das DCNs atualmente pendentes no fluxo de Engenharia e Qualidade da CTDI do Brasil. Para cada documento, são apresentados o status da implementação e as justificativas para a não conclusão:';
       subject = `[CTDI • Gestão de DCNs] Relatório de DCN(s) Pendentes(s) - ${sendDateShort}`;
