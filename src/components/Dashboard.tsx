@@ -364,7 +364,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
             <p className="text-xs font-medium text-slate-500">Treinamentos Pendentes</p>
             <h3 className="text-2xl font-black text-slate-900 mt-1">{stats.pendingTrainingsCount}</h3>
             <p className="text-[11px] text-cyan-700 font-medium mt-1">
-              Capacitação de operadores
+              Capacitação
             </p>
           </div>
           <div className="w-12 h-12 rounded-xl bg-cyan-50 border border-cyan-100 flex items-center justify-center text-[#00a8e8]">
