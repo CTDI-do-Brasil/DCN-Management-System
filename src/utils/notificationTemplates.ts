@@ -515,9 +515,9 @@ export function buildNotificationEmailHTML(
     valueColor: string,
     subColor: string
   ) => `
-    <td width="25%" align="center" valign="top" style="width: 25%; padding: 0 6px;">
+    <td width="33.33%" align="center" valign="top" style="width: 33.33%; padding: 0 6px;">
       <!--[if mso]>
-      <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" style="height:96px;v-text-anchor:middle;width:236px;" arcsize="12%" strokecolor="${borderColor}" fillcolor="${bgColor}">
+      <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" style="height:96px;v-text-anchor:middle;width:316px;" arcsize="12%" strokecolor="${borderColor}" fillcolor="${bgColor}">
         <v:textbox inset="0,12px,0,10px">
           <table width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;border-collapse:collapse;">
             <tr>
@@ -715,16 +715,6 @@ export function buildNotificationEmailHTML(
                       '#1d4ed8',
                       '#1e40af',
                       '#1e3a8a'
-                    )}
-                    ${renderKpiCard(
-                      'Pendentes de Ata/PDF',
-                      totalWaitingTrainingGate,
-                      'Em validação de encerramento',
-                      '#f0fdfa',
-                      '#99f6e4',
-                      '#0f766e',
-                      '#115e59',
-                      '#134e4a'
                     )}
                   </tr>
                 </table>
