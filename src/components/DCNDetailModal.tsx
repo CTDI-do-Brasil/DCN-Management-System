@@ -231,9 +231,6 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
               <span className={`px-2 py-0.5 rounded text-xs font-bold ${priorityConfig.badgeBg}`}>
                 Prioridade {priorityConfig.label}
               </span>
-              <span className="text-xs text-slate-300 font-mono">
-                {dcn.id}
-              </span>
             </div>
             <h2 className="text-base sm:text-lg font-bold text-white leading-snug">
               {dcn.title}
