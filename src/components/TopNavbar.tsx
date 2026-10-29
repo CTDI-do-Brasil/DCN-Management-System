@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Menu, 
   Search, 
@@ -13,13 +13,15 @@ import {
   WifiOff,
   AlertTriangle,
   Clock,
-  ChevronRight
+  ChevronRight,
+  Database
 } from 'lucide-react';
 import { useDCN } from '../context/DCNContext';
 import { useAuth } from '../context/AuthContext';
 import { exportDCNsToCSV, getDaysRemaining, isOverdue, formatDate, isWaitingMaterials } from '../utils/helpers';
 import { DCNLogo } from './DCNLogo';
 import { AppNavTab } from './Sidebar';
+import { api } from '../services/api';
 
 interface TopNavbarProps {
   onToggleMobileMenu: () => void;
@@ -40,6 +42,19 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({
   const { dcns, filteredDCNs } = useDCN();
   const { currentUser, logout, canCreateDCN, roleBadge, userInitials, isOfflineMode } = useAuth();
   const [bellOpen, setBellOpen] = useState(false);
+  const [dbConnected, setDbConnected] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    api.checkHealth()
+      .then(res => {
+        if (active) setDbConnected(res?.database === 'connected');
+      })
+      .catch(() => {
+        if (active) setDbConnected(false);
+      });
+    return () => { active = false; };
+  }, []);
 
   const alertSummary = useMemo(() => {
     const active = dcns.filter(d => d.status !== 'ENCERRADA');
@@ -96,6 +111,21 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({
             <span className="text-sm font-bold text-[#00386e] font-sans">
               {tabLabels[activeTab] || 'Visão Geral'}
             </span>
+            {dbConnected !== false ? (
+              <div className="hidden lg:inline-flex items-center space-x-1 pl-2" title="Conexão com banco de dados PostgreSQL ativa">
+                <span className="inline-block w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                  PostgreSQL Conectado
+                </span>
+              </div>
+            ) : (
+              <div className="hidden lg:inline-flex items-center space-x-1 pl-2" title="Backend PostgreSQL inacessível no momento - operando em contingência local">
+                <span className="inline-block w-2 h-2 rounded-full bg-amber-500" />
+                <span className="text-[10px] font-bold text-amber-800 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">
+                  Modo Local
+                </span>
+              </div>
+            )}
           </div>
         </div>
 

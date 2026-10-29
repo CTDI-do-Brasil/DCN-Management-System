@@ -418,6 +418,9 @@ export const DCNProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const selectedTechs = technicians.filter(t => technicianIds.includes(t.id));
     if (selectedTechs.length === 0) return;
 
+    let updatedNewAttendees: TrainingAttendee[] = [];
+    let updatedTotalPlanned = 0;
+
     setDcns(prev => prev.map(dcn => {
       if (dcn.id !== dcnId) return dcn;
 
@@ -452,27 +455,42 @@ export const DCNProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         trainingTopics: ['Procedimento Operacional Padronizado', 'Critérios de Inspeção da DCN']
       };
 
+      updatedNewAttendees = newAttendees;
+      updatedTotalPlanned = Math.max(currentTraining.totalPlanned, newAttendees.length);
+
       return {
         ...dcn,
         needsTraining: true,
         training: {
           ...currentTraining,
           attendeesList: newAttendees,
-          totalPlanned: Math.max(currentTraining.totalPlanned, newAttendees.length),
+          totalPlanned: updatedTotalPlanned,
           totalTrained: newAttendees.filter(a => a.status === 'CONCLUIDO').length
         }
       };
     }));
+
+    if (updatedNewAttendees.length > 0) {
+      api.updateTraining(dcnId, {
+        attendeesList: updatedNewAttendees,
+        totalPlanned: updatedTotalPlanned,
+        totalTrained: updatedNewAttendees.filter(a => a.status === 'CONCLUIDO').length
+      }).catch(err => console.warn('[DCNContext] Falha ao persistir técnicos no PostgreSQL:', err));
+    }
   };
 
   // Remove technician from DCN training list
   const removeTechnicianFromDCN = (dcnId: string, badgeOrId: string) => {
+    let updatedFilteredAttendees: TrainingAttendee[] = [];
+
     setDcns(prev => prev.map(dcn => {
       if (dcn.id !== dcnId || !dcn.training) return dcn;
 
       const filteredAttendees = (dcn.training.attendeesList || []).filter(
         a => a.badge !== badgeOrId && a.technicianId !== badgeOrId && a.name !== badgeOrId
       );
+
+      updatedFilteredAttendees = filteredAttendees;
 
       return {
         ...dcn,
@@ -484,11 +502,21 @@ export const DCNProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         }
       };
     }));
+
+    api.updateTraining(dcnId, {
+      attendeesList: updatedFilteredAttendees,
+      totalPlanned: Math.max(1, updatedFilteredAttendees.length),
+      totalTrained: updatedFilteredAttendees.filter(a => a.status === 'CONCLUIDO').length
+    }).catch(err => console.warn('[DCNContext] Falha ao persistir remoção de técnico no PostgreSQL:', err));
   };
 
   // Sign individual technician training
   const signTechnicianTraining = (dcnId: string, badgeOrId: string) => {
     const today = new Date().toISOString().split('T')[0];
+    let syncedAttendees: TrainingAttendee[] = [];
+    let syncedStatus: 'PENDENTE' | 'AGENDADO' | 'CONCLUIDO' = 'PENDENTE';
+    let syncedCompletionDate: string | undefined = undefined;
+    let syncedTrainedCount = 0;
 
     // 1. Update DCN
     setDcns(prev => prev.map(dcn => {
@@ -510,17 +538,29 @@ export const DCNProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         updatedAttendees.length > 0 &&
         updatedAttendees.every(a => a.status === 'CONCLUIDO' || !!a.signedDate);
 
+      syncedAttendees = updatedAttendees;
+      syncedStatus = allSigned ? 'CONCLUIDO' : dcn.training.status;
+      syncedCompletionDate = allSigned ? (dcn.training.completionDate || today) : dcn.training.completionDate;
+      syncedTrainedCount = trainedCount;
+
       return {
         ...dcn,
         training: {
           ...dcn.training,
-          status: allSigned ? 'CONCLUIDO' : dcn.training.status,
-          completionDate: allSigned ? (dcn.training.completionDate || today) : dcn.training.completionDate,
+          status: syncedStatus,
+          completionDate: syncedCompletionDate,
           attendeesList: updatedAttendees,
           totalTrained: trainedCount
         }
       };
     }));
+
+    api.updateTraining(dcnId, {
+      status: syncedStatus,
+      completionDate: syncedCompletionDate,
+      attendeesList: syncedAttendees,
+      totalTrained: syncedTrainedCount
+    }).catch(err => console.warn('[DCNContext] Falha ao persistir assinatura no PostgreSQL:', err));
 
     // 2. Also register in technician profile
     const targetDCN = dcns.find(d => d.id === dcnId);
@@ -677,6 +717,8 @@ export const DCNProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
 
     const timestamp = new Date().toISOString().replace('T', ' ').slice(0, 16);
+    let appliedUpdates: Partial<DCN> | null = null;
+    let appliedComment = comment;
     
     setDcns(prev => prev.map(dcn => {
       if (dcn.id !== id) return dcn;
@@ -723,6 +765,9 @@ export const DCNProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         });
       }
 
+      const actualComment = comment || `Etapa validada por ${currentEngineer.name} conforme procedimento de engenharia.`;
+      appliedComment = actualComment;
+
       const auditEntry = {
         id: `aud-${Date.now()}`,
         timestamp,
@@ -731,22 +776,38 @@ export const DCNProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         action: `Avanço de Etapa: ${dcn.status} ➔ ${nextStatus}`,
         fromStatus: dcn.status,
         toStatus: nextStatus,
-        comment: comment || `Etapa validada por ${currentEngineer.name} conforme procedimento de engenharia.`
+        comment: actualComment
       };
 
       const isClosing = nextStatus === 'ENCERRADA';
 
-      return {
-        ...dcn,
+      appliedUpdates = {
         status: nextStatus,
         implementationDate: nextStatus === 'IMPLEMENTADA' && !dcn.implementationDate ? timestamp.split(' ')[0] : dcn.implementationDate,
         implementedBy: nextStatus === 'IMPLEMENTADA' && !dcn.implementedBy ? currentEngineer.name : dcn.implementedBy,
         closedAt: isClosing ? timestamp.split(' ')[0] : dcn.closedAt,
         closedBy: isClosing ? currentEngineer.name : dcn.closedBy,
-        closureNotes: isClosing && comment ? comment : dcn.closureNotes,
+        closureNotes: isClosing && comment ? comment : dcn.closureNotes
+      };
+
+      return {
+        ...dcn,
+        ...appliedUpdates,
         auditTrail: [...dcn.auditTrail, auditEntry]
       };
     }));
+
+    if (appliedUpdates) {
+      api.updateDCN(
+        id,
+        appliedUpdates,
+        appliedComment,
+        currentEngineer.name,
+        'Engenharia de Processos'
+      ).catch(err => {
+        console.warn('[DCNContext] Falha ao persistir avanço no PostgreSQL:', err);
+      });
+    }
   };
 
   // Revert DCN Status
@@ -772,6 +833,16 @@ export const DCNProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         auditTrail: [...dcn.auditTrail, auditEntry]
       };
     }));
+
+    api.updateDCN(
+      id,
+      { status: targetStatus },
+      `Retorno de Etapa: ${targetStatus}. Motivo: ${reason}`,
+      currentEngineer.name,
+      'Engenharia de Processos'
+    ).catch(err => {
+      console.warn('[DCNContext] Falha ao persistir retorno de etapa no PostgreSQL:', err);
+    });
   };
 
   // Update Material Status
@@ -878,6 +949,20 @@ export const DCNProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         materials: [...dcn.materials, newItem]
       };
     }));
+
+    api.addMaterial(dcnId, item).then(saved => {
+      if (saved && saved.id) {
+        setDcns(prev => prev.map(dcn => {
+          if (dcn.id !== dcnId) return dcn;
+          return {
+            ...dcn,
+            materials: dcn.materials.map(m => m.id === newItem.id ? saved : m)
+          };
+        }));
+      }
+    }).catch(err => {
+      console.warn('[DCNContext] Falha ao persistir material no PostgreSQL:', err);
+    });
   };
 
   // Update Training Details
@@ -991,6 +1076,17 @@ export const DCNProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       };
     }));
 
+    api.updateTraining(dcnId, {
+      status: 'CONCLUIDO',
+      completionDate: today,
+      evidenceDoc: updatedTraining.evidenceDoc,
+      attendeesList: updatedAttendees,
+      totalTrained: updatedTraining.totalTrained,
+      totalPlanned: updatedTraining.totalPlanned
+    }).catch(err => {
+      console.warn('[DCNContext] Falha ao persistir conclusão de treinamento no PostgreSQL:', err);
+    });
+
     // 2. Synchronize all associated technicians
     setTechnicians(prev => prev.map(t => {
       const isAttendee = updatedAttendees.some(
@@ -1022,11 +1118,14 @@ export const DCNProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   // Toggle Checklist Item
   const toggleChecklistItem = (dcnId: string, checklistId: string) => {
     const timestamp = new Date().toISOString().replace('T', ' ').slice(0, 16);
+    let targetNewCompleted = false;
+
     setDcns(prev => prev.map(dcn => {
       if (dcn.id !== dcnId) return dcn;
       const updatedChecklist = dcn.implementationChecklist.map(chk => {
         if (chk.id !== checklistId) return chk;
         const newCompleted = !chk.completed;
+        targetNewCompleted = newCompleted;
         return {
           ...chk,
           completed: newCompleted,
@@ -1039,6 +1138,13 @@ export const DCNProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         implementationChecklist: updatedChecklist
       };
     }));
+
+    api.updateChecklistItem(dcnId, checklistId, {
+      completed: targetNewCompleted,
+      completedAt: targetNewCompleted ? timestamp : undefined
+    }).catch(err => {
+      console.warn('[DCNContext] Falha ao persistir toggle de checklist no PostgreSQL:', err);
+    });
   };
 
   // Add Checklist Item
@@ -1057,6 +1163,20 @@ export const DCNProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         implementationChecklist: [...dcn.implementationChecklist, newItem]
       };
     }));
+
+    api.addChecklistItem(dcnId, title, mandatory, currentEngineer.name).then(saved => {
+      if (saved && saved.id) {
+        setDcns(prev => prev.map(dcn => {
+          if (dcn.id !== dcnId) return dcn;
+          return {
+            ...dcn,
+            implementationChecklist: dcn.implementationChecklist.map(c => c.id === newItem.id ? saved : c)
+          };
+        }));
+      }
+    }).catch(err => {
+      console.warn('[DCNContext] Falha ao persistir item de checklist no PostgreSQL:', err);
+    });
   };
 
   // Upload Attachment File to MinIO & State

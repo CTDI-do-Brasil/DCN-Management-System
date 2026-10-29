@@ -635,7 +635,11 @@ app.post('/api/dcns', async (req: Request, res: Response) => {
     res.status(201).json(newDCN);
   } catch (error: any) {
     console.error('Error creating DCN:', error);
-    res.status(500).json({ error: 'Failed to create DCN', details: error.message });
+    let msg = 'Failed to create DCN';
+    if (error.code === 'P2002') {
+      msg = `Já existe uma DCN cadastrada com o número informado (${req.body?.dcnNumber || ''}).`;
+    }
+    res.status(500).json({ error: msg, details: error.message });
   }
 });
 
@@ -841,10 +845,36 @@ app.put('/api/dcns/:id/training', async (req: Request, res: Response) => {
           scheduledDate: trainingData.scheduledDate !== undefined ? trainingData.scheduledDate : existing.scheduledDate,
           completionDate: trainingData.completionDate !== undefined ? trainingData.completionDate : existing.completionDate,
           status: trainingData.status !== undefined ? trainingData.status : existing.status,
-          trainingTopics: trainingData.trainingTopics !== undefined ? trainingData.trainingTopics : existing.trainingTopics
+          trainingTopics: trainingData.trainingTopics !== undefined ? trainingData.trainingTopics : existing.trainingTopics,
+          totalTrained: trainingData.totalTrained !== undefined ? Number(trainingData.totalTrained) : existing.totalTrained,
+          totalPlanned: trainingData.totalPlanned !== undefined ? Number(trainingData.totalPlanned) : existing.totalPlanned,
+          evidenceDoc: trainingData.evidenceDoc !== undefined ? trainingData.evidenceDoc : existing.evidenceDoc
         },
         include: { attendeesList: true }
       });
+
+      if (Array.isArray(trainingData.attendeesList)) {
+        await prisma.trainingAttendee.deleteMany({
+          where: { trainingId: existing.id }
+        });
+        for (const att of trainingData.attendeesList) {
+          await prisma.trainingAttendee.create({
+            data: {
+              trainingId: existing.id,
+              name: att.name,
+              badge: att.badge || null,
+              technicianId: att.technicianId || null,
+              department: att.department || 'Produção',
+              status: att.status || 'PENDENTE',
+              signedDate: att.signedDate || null
+            }
+          });
+        }
+        result = await prisma.trainingRecord.findUnique({
+          where: { dcnId: id },
+          include: { attendeesList: true }
+        });
+      }
     } else {
       result = await prisma.trainingRecord.create({
         data: {
@@ -855,11 +885,35 @@ app.put('/api/dcns/:id/training', async (req: Request, res: Response) => {
           estimatedHours: Number(trainingData.estimatedHours) || 30,
           scheduledDate: trainingData.scheduledDate || null,
           completionDate: trainingData.completionDate || null,
+          totalTrained: Number(trainingData.totalTrained) || 0,
+          totalPlanned: Number(trainingData.totalPlanned) || 0,
           status: trainingData.status || (trainingData.scheduledDate ? 'AGENDADO' : 'PENDENTE'),
-          trainingTopics: trainingData.trainingTopics || ['Instrução de Trabalho revisada', 'Parâmetros técnicos e tolerâncias de qualidade']
+          trainingTopics: trainingData.trainingTopics || ['Instrução de Trabalho revisada', 'Parâmetros técnicos e tolerâncias de qualidade'],
+          evidenceDoc: trainingData.evidenceDoc || null
         },
         include: { attendeesList: true }
       });
+
+      if (Array.isArray(trainingData.attendeesList) && trainingData.attendeesList.length > 0) {
+        for (const att of trainingData.attendeesList) {
+          await prisma.trainingAttendee.create({
+            data: {
+              trainingId: result.id,
+              name: att.name,
+              badge: att.badge || null,
+              technicianId: att.technicianId || null,
+              department: att.department || 'Produção',
+              status: att.status || 'PENDENTE',
+              signedDate: att.signedDate || null
+            }
+          });
+        }
+        result = await prisma.trainingRecord.findUnique({
+          where: { dcnId: id },
+          include: { attendeesList: true }
+        });
+      }
+
       await prisma.dCN.update({
         where: { id },
         data: { needsTraining: true }
@@ -1279,17 +1333,16 @@ async function syncDatabaseOnStartup() {
       // ignora se a tabela ainda não existir
     }
 
-    // 1. Remover DCNs e Técnicos de simulação legados caso existam no banco
-    const deletedDCNs = await prisma.dCN.deleteMany({
-      where: {
-        OR: [
-          { id: { in: LEGACY_DEMO_DCN_IDS } },
-          { dcnNumber: { in: LEGACY_DEMO_DCN_NUMBERS } }
-        ]
+    // 1. Remover DCNs e Técnicos de simulação legados caso existam no banco (apenas números de simulação)
+    if (LEGACY_DEMO_DCN_NUMBERS.length > 0) {
+      const deletedDCNs = await prisma.dCN.deleteMany({
+        where: {
+          dcnNumber: { in: LEGACY_DEMO_DCN_NUMBERS }
+        }
+      });
+      if (deletedDCNs.count > 0) {
+        console.log(`[Startup Cleanup] ${deletedDCNs.count} DCN(s) de simulação removida(s) do PostgreSQL.`);
       }
-    });
-    if (deletedDCNs.count > 0) {
-      console.log(`[Startup Cleanup] ${deletedDCNs.count} DCN(s) de simulação removida(s) do PostgreSQL.`);
     }
 
     const deletedTechs = await prisma.technician.deleteMany({
