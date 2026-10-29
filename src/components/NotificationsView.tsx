@@ -699,7 +699,7 @@ export const NotificationsView: React.FC<NotificationsViewProps> = () => {
               </p>
             </div>
             <span className="text-[11px] font-bold text-indigo-700 bg-indigo-50 px-2.5 py-0.5 rounded-full border border-indigo-200">
-              {users.length + (settings.directRecipients?.length || 0)} no Para
+              {(settings.directRecipients || []).length} no Para
             </span>
           </div>
 
@@ -721,7 +721,7 @@ export const NotificationsView: React.FC<NotificationsViewProps> = () => {
           </form>
 
           {/* Chips de e-mails diretos adicionados */}
-          {(settings.directRecipients || []).length > 0 && (
+          {(settings.directRecipients || []).length > 0 ? (
             <div className="flex flex-wrap gap-2 pt-1 pb-1">
               {settings.directRecipients!.map(email => (
                 <span
@@ -741,37 +741,28 @@ export const NotificationsView: React.FC<NotificationsViewProps> = () => {
                 </span>
               ))}
             </div>
+          ) : (
+            <p className="text-[11px] text-slate-400 italic pt-1">
+              Nenhum e-mail direto adicional fixado. Os disparos serão encaminhados automaticamente aos engenheiros responsáveis de cada DCN.
+            </p>
           )}
-
-          <div className="divide-y divide-slate-100 border border-slate-200 rounded-xl overflow-hidden text-xs max-h-48 overflow-y-auto">
-            {users.map(u => {
-              const email = u.email || `${u.login.toLowerCase()}@ctdi.com`;
-              return (
-                <div key={u.id} className="p-3 bg-white flex items-center justify-between">
-                  <div>
-                    <p className="font-bold text-slate-900">{u.nome}</p>
-                    <p className="text-[11px] text-slate-400 font-mono">{u.login}</p>
-                  </div>
-                  <span className="inline-flex items-center px-2.5 py-1 rounded-lg bg-slate-50 border border-slate-200 font-mono text-xs text-slate-700">
-                    <Mail className="w-3 h-3 mr-1.5 text-indigo-600" />
-                    {email}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
         </div>
 
         {/* Lista de Destinatários em Cópia (Campo "Cc:" / Cópia) */}
         <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xs p-5 space-y-3">
-          <div>
-            <h3 className="text-sm font-bold text-slate-900 flex items-center gap-1.5">
-              <Mail className="w-4 h-4 text-indigo-600" />
-              Lista de Destinatários em Cópia (Campo "Cc:" / Cópia)
-            </h3>
-            <p className="text-[11px] text-slate-500">
-              Estes e-mails recebem cópia (Cc:) de todos os relatórios e alertas de SLA
-            </p>
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-sm font-bold text-slate-900 flex items-center gap-1.5">
+                <Mail className="w-4 h-4 text-indigo-600" />
+                Lista de Destinatários em Cópia (Campo "Cc:" / Cópia)
+              </h3>
+              <p className="text-[11px] text-slate-500">
+                Estes e-mails recebem cópia (Cc:) de todos os relatórios e alertas de SLA
+              </p>
+            </div>
+            <span className="text-[11px] font-bold text-indigo-700 bg-indigo-50 px-2.5 py-0.5 rounded-full border border-indigo-200">
+              {settings.fixedRecipients.length} no Cc
+            </span>
           </div>
 
           <form onSubmit={handleAddRecipient} className="flex gap-2">

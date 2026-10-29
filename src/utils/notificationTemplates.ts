@@ -366,7 +366,7 @@ export function resolveRecipientsForDCNs(
   users.forEach(u => {
     const matchesName = responsibles.has(u.nome.trim().toLowerCase());
     const matchesLogin = responsibles.has(u.login.trim().toLowerCase());
-    if (matchesName || matchesLogin || u.role === 'ADMIN') {
+    if (matchesName || matchesLogin) {
       if (u.email && u.email.trim()) {
         const cleanUserEmail = u.email.trim().toLowerCase();
         if (!excludedSet.has(cleanUserEmail)) {
