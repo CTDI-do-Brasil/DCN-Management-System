@@ -8,17 +8,16 @@ const prisma = new PrismaClient();
 async function main() {
   console.log('--- Iniciando Sincronização Inicial no PostgreSQL (Seed Limpo) ---');
 
-  // 1. Limpar dados fictícios de simulação caso existam no banco
-  const deletedDCNs = await prisma.dCN.deleteMany({
-    where: {
-      OR: [
-        { id: { in: LEGACY_DEMO_DCN_IDS } },
-        { dcnNumber: { in: LEGACY_DEMO_DCN_NUMBERS } }
-      ]
+  // 1. Limpar dados fictícios de simulação caso existam no banco (apenas números de simulação)
+  if (LEGACY_DEMO_DCN_NUMBERS.length > 0) {
+    const deletedDCNs = await prisma.dCN.deleteMany({
+      where: {
+        dcnNumber: { in: LEGACY_DEMO_DCN_NUMBERS }
+      }
+    });
+    if (deletedDCNs.count > 0) {
+      console.log(`✓ ${deletedDCNs.count} DCN(s) de simulação removida(s) do banco.`);
     }
-  });
-  if (deletedDCNs.count > 0) {
-    console.log(`✓ ${deletedDCNs.count} DCN(s) de simulação removida(s) do banco.`);
   }
 
   const deletedTechs = await prisma.technician.deleteMany({

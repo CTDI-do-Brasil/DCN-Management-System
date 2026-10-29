@@ -184,13 +184,45 @@ export const DCNProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
             const cleanDCNs = remoteDCNs.filter(
               d => !LEGACY_DEMO_DCN_IDS.includes(d.id) && !LEGACY_DEMO_DCN_NUMBERS.includes(d.dcnNumber)
             );
-            setDcns(cleanDCNs);
+            if (cleanDCNs.length > 0) {
+              setDcns(cleanDCNs);
+            } else {
+              // Se o servidor retornou 0 DCNs (ex: banco novo ou recém reiniciado), preserva DCNs locais legítimas
+              // e sincroniza com o backend para evitar perda de dados
+              setDcns(currentLocalDcns => {
+                const validLocal = currentLocalDcns.filter(
+                  d => !LEGACY_DEMO_DCN_NUMBERS.includes(d.dcnNumber)
+                );
+                if (validLocal.length > 0) {
+                  validLocal.forEach(d => {
+                    api.createDCN(d as any).catch(err => console.warn('[DCNContext] Sincronização offline-to-server falhou:', err));
+                  });
+                  return validLocal;
+                }
+                return [];
+              });
+            }
           }
           if (Array.isArray(remoteTechs)) {
             const cleanTechs = remoteTechs.filter(
               t => !LEGACY_DEMO_TECH_IDS.includes(t.id) && !LEGACY_DEMO_TECH_BADGES.includes(t.badge || '')
             );
-            setTechnicians(cleanTechs);
+            if (cleanTechs.length > 0) {
+              setTechnicians(cleanTechs);
+            } else {
+              setTechnicians(currentLocalTechs => {
+                const validLocal = currentLocalTechs.filter(
+                  t => !LEGACY_DEMO_TECH_IDS.includes(t.id) && !LEGACY_DEMO_TECH_BADGES.includes(t.badge || '')
+                );
+                if (validLocal.length > 0) {
+                  validLocal.forEach(t => {
+                    api.createTechnician(t as any).catch(() => {});
+                  });
+                  return validLocal;
+                }
+                return [];
+              });
+            }
           }
         }
       } catch {
@@ -510,7 +542,7 @@ export const DCNProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   // Create DCN
   const createDCN = async (newDCNData: Omit<DCN, 'id' | 'auditTrail'>): Promise<DCN> => {
-    const nextId = `DCN-2025-${String(dcns.length + 1).padStart(3, '0')}`;
+    const nextId = `dcn-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
     const timestamp = new Date().toISOString().replace('T', ' ').slice(0, 16);
     
     const initialAudit = {

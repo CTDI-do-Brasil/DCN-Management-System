@@ -1,14 +1,6 @@
 import { DCN } from '../types';
 
-export const LEGACY_DEMO_DCN_IDS = [
-  'DCN-2025-001',
-  'DCN-2025-002',
-  'DCN-2025-003',
-  'DCN-2025-004',
-  'DCN-2025-005',
-  'DCN-2025-006',
-  'DCN-2025-007'
-];
+export const LEGACY_DEMO_DCN_IDS: string[] = [];
 
 export const LEGACY_DEMO_DCN_NUMBERS = [
   'DCN-BR-2025-089-R2',
