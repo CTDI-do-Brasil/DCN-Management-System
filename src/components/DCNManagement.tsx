@@ -304,7 +304,7 @@ export const DCNManagement: React.FC<DCNManagementProps> = ({ onSelectDCN, onOpe
                               )}
                             </div>
                             <span className="text-[10px] text-slate-400 font-mono">
-                              {dcn.id} • Rec: {formatDate(dcn.receivedDate)}
+                              Rec: {formatDate(dcn.receivedDate)}
                             </span>
                           </div>
                         </td>
