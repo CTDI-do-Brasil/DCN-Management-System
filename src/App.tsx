@@ -173,7 +173,7 @@ function AppContent() {
               <span>Document Change Notice Management System</span>
             </div>
             <div>
-              <span>ISO 9001:2015 & IATF 16949 Compliant • Engenharia de Processos</span>
+              <span>ISO 9001:2015 • Engenharia de Processos</span>
             </div>
           </div>
         </footer>
