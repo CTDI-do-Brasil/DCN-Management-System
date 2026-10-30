@@ -1355,9 +1355,16 @@ async function sendDCNClosureNotification(
 
     // B) Se não veio do cliente, buscar nos anexos da DCN
     if (!hasTrainingAttachment) {
-      const trainingAttachment = (fullDcn.attachments || []).find(
+      let trainingAttachment = (fullDcn.attachments || []).find(
         (att: any) => att.category === 'REGISTRO_TREINAMENTO'
       );
+
+      // Fallback: se não houver categoria REGISTRO_TREINAMENTO, pegar o primeiro PDF anexado ou primeiro anexo
+      if (!trainingAttachment && (fullDcn.attachments || []).length > 0) {
+        trainingAttachment = (fullDcn.attachments || []).find(
+          (att: any) => att.type === 'PDF' || (att.name && att.name.toLowerCase().endsWith('.pdf'))
+        ) || fullDcn.attachments[0];
+      }
 
       if (trainingAttachment) {
         attachmentName = trainingAttachment.name;
@@ -1393,13 +1400,17 @@ async function sendDCNClosureNotification(
           }
         }
 
-        // 3. Fallback: buscar na pasta uploads/ por nome de arquivo
+        // 3. Fallback: buscar na pasta uploads/ por nome de arquivo ou ID da DCN
         if (!hasTrainingAttachment) {
           try {
             const uploadsDir = path.join(process.cwd(), 'uploads');
             if (fs.existsSync(uploadsDir)) {
               const files = fs.readdirSync(uploadsDir);
-              const match = files.find(f => f.includes(trainingAttachment.name) || f.endsWith(trainingAttachment.name));
+              const cleanTarget = (trainingAttachment.name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+              const match = files.find(f => {
+                const cleanF = f.toLowerCase().replace(/[^a-z0-9]/g, '');
+                return (cleanTarget && cleanF.includes(cleanTarget)) || (f.includes(dcnId) && f.toLowerCase().endsWith('.pdf'));
+              });
               if (match) {
                 const buf = fs.readFileSync(path.join(uploadsDir, match));
                 hasTrainingAttachment = true;
@@ -1408,12 +1419,17 @@ async function sendDCNClosureNotification(
                   content: buf,
                   contentType: trainingAttachment.mimeType || 'application/pdf'
                 });
+                console.log(`[sendDCNClosureNotification] Anexo recuperado da pasta uploads/ (${match}): ${buf.length} bytes`);
               }
             }
-          } catch {}
+          } catch (diskErr: any) {
+            console.warn('[DCN Encerramento] Erro ao ler uploads local:', diskErr.message);
+          }
         }
       }
     }
+
+    console.log(`[DCN Encerramento] Preparando envio de e-mail. Anexos anexados: ${attachmentsToSend.length} (${attachmentsToSend.map(a => a.filename).join(', ')})`);
 
     // 2. Destinatários: Para (diretos + responsável) e Cc (cópia fixa)
     const { to, cc } = resolveClosureRecipients(fullDcn as any, usersList, notificationSettingsMemory);

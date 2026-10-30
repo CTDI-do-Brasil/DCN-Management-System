@@ -155,7 +155,11 @@ export const DCNProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(dcns));
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(dcns));
+    } catch (err) {
+      console.warn('[DCNContext] Limite de quota do localStorage atingido ao salvar DCNs:', err);
+    }
     if (selectedDCN) {
       const updatedSelected = dcns.find(d => d.id === selectedDCN.id);
       if (updatedSelected) {
@@ -826,7 +830,9 @@ export const DCNProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           const closedDcn = { ...targetDcnObj, ...appliedUpdates };
           const trainingAtt = (closedDcn.attachments || []).find(
             a => a.category === 'REGISTRO_TREINAMENTO'
-          );
+          ) || (closedDcn.attachments || []).find(
+            a => a.type === 'PDF' || (a.name && a.name.toLowerCase().endsWith('.pdf'))
+          ) || (closedDcn.attachments && closedDcn.attachments.length > 0 ? closedDcn.attachments[0] : null);
           const attPayload = trainingAtt?.base64
             ? {
                 base64: trainingAtt.base64,

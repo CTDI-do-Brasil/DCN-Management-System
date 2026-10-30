@@ -169,6 +169,9 @@ export async function sendSmtpEmail(options: SendMailOptions): Promise<{ sent: b
             ?.join('\r\n') || '';
 
         if (hasAttachments) {
+          console.log(`[SMTP Client] Preparando envio com ${attachments.length} anexo(s) via multipart/mixed:`);
+          attachments.forEach(a => console.log(`  -> Anexo: "${a.filename}" (${a.content.length} bytes, MIME: ${a.contentType || 'application/pdf'})`));
+
           const boundary = `----=_Part_${Date.now()}_${Math.random().toString(36).substring(2, 10)}`;
           headerLines.push(
             `Subject: ${encodedSubject}`,
@@ -186,19 +189,20 @@ export async function sendSmtpEmail(options: SendMailOptions): Promise<{ sent: b
 
           for (const att of attachments) {
             const base64Att = att.content.toString('base64').match(/.{1,76}/g)?.join('\r\n') || '';
-            const mimeType = att.contentType || 'application/octet-stream';
-            const safeFilename = (att.filename || 'anexo').replace(/"/g, '');
+            const mimeType = att.contentType || 'application/pdf';
+            const safeFilename = (att.filename || 'Registro_Treinamento.pdf').replace(/["\r\n]/g, '');
 
             mimeBody += `\r\n--${boundary}\r\n`;
             mimeBody += `Content-Type: ${mimeType}; name="${safeFilename}"\r\n`;
             mimeBody += `Content-Transfer-Encoding: base64\r\n`;
-            mimeBody += `Content-Disposition: attachment; filename="${safeFilename}"; filename*="UTF-8''${encodeURIComponent(safeFilename)}"\r\n\r\n`;
+            mimeBody += `Content-Disposition: attachment; filename="${safeFilename}"\r\n\r\n`;
             mimeBody += `${base64Att}\r\n`;
           }
 
           mimeBody += `\r\n--${boundary}--\r\n`;
           messagePayload = `${messageHeaders}\r\n${mimeBody}`;
         } else {
+          console.log(`[SMTP Client] Enviando e-mail sem anexos (text/html).`);
           headerLines.push(
             `Subject: ${encodedSubject}`,
             `MIME-Version: 1.0`,
@@ -211,7 +215,8 @@ export async function sendSmtpEmail(options: SendMailOptions): Promise<{ sent: b
           messagePayload = `${messageHeaders}\r\n${base64Html}\r\n`;
         }
 
-        await sendCmd(`${messagePayload}\r\n.`, [250]);
+        const finalData = messagePayload.endsWith('\r\n') ? `${messagePayload}.\r\n` : `${messagePayload}\r\n.\r\n`;
+        await sendCmd(finalData, [250]);
         await sendCmd('QUIT', [221, 250]);
 
         clearTimeout(timeout);
