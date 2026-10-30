@@ -3,6 +3,10 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import path from 'path';
 import fs from 'fs';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 import multer from 'multer';
 import { prisma } from './db';
 import {
@@ -1197,13 +1201,31 @@ app.get('/api/attachments/:id/file', async (req: Request, res: Response) => {
         if (fs.existsSync(directLocal)) {
           const stat = fs.statSync(directLocal);
           const isDownload = req.query.download === 'true';
-          res.setHeader('Content-Type', id.endsWith('.pdf') ? 'application/pdf' : 'application/octet-stream');
+          const isPdf = id.toLowerCase().endsWith('.pdf');
+          res.setHeader('Content-Type', isPdf ? 'application/pdf' : 'application/octet-stream');
           res.setHeader('Content-Length', stat.size);
           res.setHeader(
             'Content-Disposition',
             `${isDownload ? 'attachment' : 'inline'}; filename="${encodeURIComponent(id)}"`
           );
           return fs.createReadStream(directLocal).pipe(res);
+        }
+
+        // 1.1 Se o id não for o nome exato, buscar arquivo que contenha o id
+        const files = fs.readdirSync(uploadsDir);
+        const match = files.find(f => f === id || f.includes(id) || (id.startsWith('att-') && f.includes(id.replace('att-', ''))));
+        if (match) {
+          const fullPath = path.join(uploadsDir, match);
+          const stat = fs.statSync(fullPath);
+          const isDownload = req.query.download === 'true';
+          const isPdf = match.toLowerCase().endsWith('.pdf');
+          res.setHeader('Content-Type', isPdf ? 'application/pdf' : 'application/octet-stream');
+          res.setHeader('Content-Length', stat.size);
+          res.setHeader(
+            'Content-Disposition',
+            `${isDownload ? 'attachment' : 'inline'}; filename="${encodeURIComponent(match)}"`
+          );
+          return fs.createReadStream(fullPath).pipe(res);
         }
       } catch {}
     }
@@ -1226,11 +1248,19 @@ app.get('/api/attachments/:id/file', async (req: Request, res: Response) => {
       stream = await getFileStreamFromMinio(attachment.objectKey);
       size = stat.size;
     } catch (minioErr) {
-      const localPath = path.join(process.cwd(), 'uploads', attachment.objectKey.replace(/\//g, '_'));
-      if (fs.existsSync(localPath)) {
-        const localStat = fs.statSync(localPath);
-        size = localStat.size;
-        stream = fs.createReadStream(localPath);
+      let foundStream: any = null;
+      const sanitizedKey = attachment.objectKey.replace(/\//g, '_');
+      for (const dir of getUploadCandidateDirs()) {
+        const localPath = path.join(dir, sanitizedKey);
+        if (fs.existsSync(localPath)) {
+          const localStat = fs.statSync(localPath);
+          size = localStat.size;
+          foundStream = fs.createReadStream(localPath);
+          break;
+        }
+      }
+      if (foundStream) {
+        stream = foundStream;
       } else {
         throw minioErr;
       }

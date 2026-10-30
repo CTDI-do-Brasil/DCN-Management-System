@@ -1745,7 +1745,7 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
             <div className="p-4 flex-1 overflow-auto flex items-center justify-center bg-slate-950/5">
               {previewAttachment.type === 'VIDEO' && (
                 <video
-                  src={previewAttachment.url || api.getAttachmentFileUrl(previewAttachment.id)}
+                  src={previewAttachment.base64 || previewAttachment.url || api.getAttachmentFileUrl(previewAttachment.id)}
                   controls
                   autoPlay
                   className="w-full max-h-[70vh] rounded-lg shadow-lg bg-black"
@@ -1756,7 +1756,7 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
 
               {previewAttachment.type === 'IMG' && (
                 <img
-                  src={previewAttachment.url || api.getAttachmentFileUrl(previewAttachment.id)}
+                  src={previewAttachment.base64 || previewAttachment.url || api.getAttachmentFileUrl(previewAttachment.id)}
                   alt={previewAttachment.name}
                   className="max-h-[70vh] max-w-full rounded-lg shadow object-contain"
                 />
@@ -1764,7 +1764,7 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
 
               {previewAttachment.type === 'PDF' && (
                 <iframe
-                  src={previewAttachment.url || api.getAttachmentFileUrl(previewAttachment.id)}
+                  src={previewAttachment.base64 || previewAttachment.url || api.getAttachmentFileUrl(previewAttachment.id)}
                   title={previewAttachment.name}
                   className="w-full h-[70vh] rounded-lg border border-slate-200 bg-white"
                 />
