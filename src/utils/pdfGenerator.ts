@@ -1,5 +1,25 @@
 import { DCN } from '../types';
 
+function toBase64String(str: string): string {
+  if (typeof btoa === 'function') {
+    return btoa(str);
+  }
+  if (typeof Buffer !== 'undefined') {
+    return Buffer.from(str, 'latin1').toString('base64');
+  }
+  return '';
+}
+
+function getByteLength(str: string): number {
+  if (typeof TextEncoder !== 'undefined') {
+    return new TextEncoder().encode(str).length;
+  }
+  if (typeof Buffer !== 'undefined') {
+    return Buffer.byteLength(str, 'latin1');
+  }
+  return str.length;
+}
+
 /**
  * Remove acentuação e caracteres especiais para compatibilidade total
  * com fontes padrão Type1 (Helvetica) no padrão PDF-1.4
@@ -123,7 +143,7 @@ export function generateTrainingEvidencePDF(dcn: DCN): string {
   lines.push('BT /F1 7 Tf 120 48 Td (Evidencia Oficial de Treinamento gerada eletronicamente pelo Sistema de Gestao de DCNs - CTDI do Brasil) Tj ET');
 
   const streamContent = lines.join('\n');
-  const streamLength = Buffer.byteLength(streamContent, 'latin1');
+  const streamLength = getByteLength(streamContent);
 
   const objects = [
     '1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj',
@@ -147,5 +167,5 @@ export function generateTrainingEvidencePDF(dcn: DCN): string {
   const startxref = body.length;
   body += xref.join('\n') + '\ntrailer\n<< /Size ' + (objects.length + 1) + ' /Root 1 0 R >>\nstartxref\n' + startxref + '\n%%EOF';
 
-  return Buffer.from(body, 'latin1').toString('base64');
+  return toBase64String(body);
 }

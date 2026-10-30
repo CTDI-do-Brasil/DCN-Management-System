@@ -147,59 +147,73 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
   };
 
   const handleSendClosureEmail = async () => {
-    // 1. Localizar o anexo de evidência de treinamento já vinculado à DCN
-    const trainingAtt = (dcn.attachments || []).find(
-      a => a.category === 'REGISTRO_TREINAMENTO' ||
-           (a.name && (a.name.toLowerCase().includes('treinamento') || a.name.toLowerCase().includes('registro')))
-    ) || (dcn.attachments || []).find(
-      a => a.type === 'PDF' || (a.name && a.name.toLowerCase().endsWith('.pdf'))
-    ) || (dcn.attachments && dcn.attachments.length > 0 ? dcn.attachments[0] : null);
+    setIsSendingClosureEmail(true);
+    try {
+      console.log('[handleSendClosureEmail] Iniciando processo de envio com anexo para DCN:', dcn.dcnNumber);
 
-    let base64 = trainingAtt?.base64;
-    let filename = trainingAtt?.name || 'Registro_Treinamento.pdf';
-    if (!filename.toLowerCase().endsWith('.pdf')) {
-      filename += '.pdf';
-    }
+      // 1. Localizar o anexo de evidência de treinamento já vinculado à DCN
+      const trainingAtt = (dcn.attachments || []).find(
+        a => a.category === 'REGISTRO_TREINAMENTO' ||
+             (a.name && (a.name.toLowerCase().includes('treinamento') || a.name.toLowerCase().includes('registro')))
+      ) || (dcn.attachments || []).find(
+        a => a.type === 'PDF' || (a.name && a.name.toLowerCase().endsWith('.pdf'))
+      ) || (dcn.attachments && dcn.attachments.length > 0 ? dcn.attachments[0] : null);
 
-    // A) Se o anexo já possui os bytes em base64 em memória/estado, envia direto
-    if (base64 && base64.length > 50) {
-      return executeSendWithAttachment(base64, filename);
-    }
+      let base64 = trainingAtt?.base64;
+      let filename = trainingAtt?.name || 'Registro_Treinamento.pdf';
+      if (!filename.toLowerCase().endsWith('.pdf')) {
+        filename += '.pdf';
+      }
 
-    // B) Se possui URL válida no servidor/API, lê os bytes em background
-    if (trainingAtt?.url) {
-      try {
-        const res = await fetch(trainingAtt.url);
-        if (res.ok) {
-          const blob = await res.blob();
-          if (blob.size > 0) {
-            base64 = await new Promise<string>((resolve, reject) => {
-              const reader = new FileReader();
-              reader.onload = () => resolve(reader.result as string);
-              reader.onerror = reject;
-              reader.readAsDataURL(blob);
-            });
-            if (base64 && base64.length > 50) {
-              if (trainingAtt) {
-                trainingAtt.base64 = base64;
+      // A) Se o anexo já possui os bytes em base64 em memória/estado, envia direto
+      if (base64 && base64.length > 50) {
+        console.log('[handleSendClosureEmail] Utilizando base64 já em memória do anexo:', filename);
+        return await executeSendWithAttachment(base64, filename);
+      }
+
+      // B) Se possui URL válida no servidor/API, lê os bytes em background
+      if (trainingAtt?.url) {
+        try {
+          console.log('[handleSendClosureEmail] Tentando carregar binário da URL:', trainingAtt.url);
+          const res = await fetch(trainingAtt.url);
+          if (res.ok) {
+            const blob = await res.blob();
+            if (blob.size > 0) {
+              base64 = await new Promise<string>((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result as string);
+                reader.onerror = reject;
+                reader.readAsDataURL(blob);
+              });
+              if (base64 && base64.length > 50) {
+                if (trainingAtt) {
+                  trainingAtt.base64 = base64;
+                }
+                console.log('[handleSendClosureEmail] Binário recuperado da URL com sucesso.');
+                return await executeSendWithAttachment(base64, filename);
               }
-              return executeSendWithAttachment(base64, filename);
             }
           }
+        } catch (e) {
+          console.warn('[handleSendClosureEmail] URL indisponível para leitura de anexo:', e);
         }
-      } catch (e) {
-        console.warn('URL indisponível para leitura de anexo:', e);
       }
-    }
 
-    // C) Caso os bytes do arquivo original não estejam disponíveis (ex: após refresh F5 em ambiente sem storage),
-    // carrega e gera AUTOMATICAMENTE o documento PDF oficial com a Ata e Registro de Treinamento da DCN
-    // e dispara imediatamente com o anexo físico anexado, SEM abrir seletores manuais!
-    const generatedPdfBase64 = generateTrainingEvidencePDF(dcn);
-    if (trainingAtt) {
-      trainingAtt.base64 = generatedPdfBase64;
+      // C) Caso os bytes do arquivo original não estejam disponíveis (ex: após refresh F5 em ambiente sem storage),
+      // carrega e gera AUTOMATICAMENTE o documento PDF oficial com a Ata e Registro de Treinamento da DCN
+      // e dispara imediatamente com o anexo físico anexado, SEM abrir seletores manuais!
+      console.log('[handleSendClosureEmail] Gerando PDF oficial de treinamento automaticamente a partir dos dados da DCN...');
+      const generatedPdfBase64 = generateTrainingEvidencePDF(dcn);
+      if (trainingAtt) {
+        trainingAtt.base64 = generatedPdfBase64;
+      }
+      return await executeSendWithAttachment(generatedPdfBase64, filename);
+    } catch (err: any) {
+      console.error('[handleSendClosureEmail] Erro durante o processo:', err);
+      alert(`❌ Erro ao enviar e-mail de encerramento: ${err.message}`);
+    } finally {
+      setIsSendingClosureEmail(false);
     }
-    return executeSendWithAttachment(generatedPdfBase64, filename);
   };
 
   const statusConfig = STATUS_CONFIG[dcn.status];
