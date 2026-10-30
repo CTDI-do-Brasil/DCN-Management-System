@@ -1171,11 +1171,34 @@ async function getAttachmentBuffer(objectKey: string): Promise<Buffer | null> {
   return null;
 }
 
-// Streaming / Download de anexo armazenado no MinIO
+// Streaming / Download de anexo armazenado no MinIO ou contingência local uploads/
 app.get('/api/attachments/:id/file', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const attachment = await prisma.dCNAttachment.findUnique({ where: { id } });
+
+    // 1. Verificar contingência direta no diretório local uploads/
+    try {
+      const uploadsDir = path.join(process.cwd(), 'uploads');
+      const directLocal = path.join(uploadsDir, id);
+      if (fs.existsSync(directLocal)) {
+        const stat = fs.statSync(directLocal);
+        const isDownload = req.query.download === 'true';
+        res.setHeader('Content-Type', id.endsWith('.pdf') ? 'application/pdf' : 'application/octet-stream');
+        res.setHeader('Content-Length', stat.size);
+        res.setHeader(
+          'Content-Disposition',
+          `${isDownload ? 'attachment' : 'inline'}; filename="${encodeURIComponent(id)}"`
+        );
+        return fs.createReadStream(directLocal).pipe(res);
+      }
+    } catch {}
+
+    let attachment: any = null;
+    try {
+      attachment = await prisma.dCNAttachment.findUnique({ where: { id } });
+    } catch {
+      // Prisma offline
+    }
 
     if (!attachment || !attachment.objectKey) {
       return res.status(404).json({ error: 'Arquivo do anexo não encontrado ou sem chave MinIO.' });
