@@ -27,7 +27,10 @@ import {
   buildNotificationEmailHTML,
   buildDCNClosureEmailHTML,
   resolveClosureRecipients,
-  filterDCNsForRule
+  filterDCNsForRule,
+  isBusinessDay,
+  getWeekKey,
+  getHolidayInfo
 } from '../src/utils/notificationTemplates';
 import { NotificationLogEntry, NotificationSettings } from '../src/types';
 import { sendSmtpEmail } from './smtpClient';
@@ -1815,26 +1818,68 @@ setInterval(async () => {
       console.log(`[Scheduler Recorrente] Executado ${ruleKey} às ${currentHHMM}: ${entry.subject} (${entry.dcnCount} DCNs)`);
     };
 
-    if (
-      notificationSettingsMemory.weeklyPendingEnabled &&
-      currentDay === notificationSettingsMemory.weeklyDayOfWeek &&
-      currentHHMM === notificationSettingsMemory.weeklyTime
-    ) {
-      await checkAndRun('WEEKLY_PENDING');
+    // 1. Regra Semanal (WEEKLY_PENDING):
+    // Verifica se hoje é o dia alvo (ex: Segunda-feira às 08:00) OU se é o 1º dia útil subsequente caso o dia alvo tenha caído em feriado
+    if (notificationSettingsMemory.weeklyPendingEnabled && currentHHMM === notificationSettingsMemory.weeklyTime) {
+      const weekKey = getWeekKey(now);
+      const weeklyExecKey = `WEEKLY_PENDING_${weekKey}`;
+
+      if (!lastExecutedRuleDate[weeklyExecKey]) {
+        const targetDay = notificationSettingsMemory.weeklyDayOfWeek ?? 1; // 1 = Segunda-feira
+        const isTodayBusinessDay = isBusinessDay(now, notificationSettingsMemory.customHolidays);
+        let shouldExecuteWeekly = false;
+
+        if (isTodayBusinessDay) {
+          if (currentDay === targetDay) {
+            // Hoje é exatamente o dia configurado e é dia útil
+            shouldExecuteWeekly = true;
+          } else if (
+            notificationSettingsMemory.postponeHolidayToNextBusinessDay !== false &&
+            currentDay > targetDay
+          ) {
+            // Se hoje é posterior ao dia alvo na mesma semana, verificar se todos os dias anteriores desde targetDay foram feriados/não-úteis
+            let allPreviousDaysWereNonBusiness = true;
+            for (let d = targetDay; d < currentDay; d++) {
+              const pastDate = new Date(now);
+              pastDate.setDate(pastDate.getDate() - (currentDay - d));
+              if (isBusinessDay(pastDate, notificationSettingsMemory.customHolidays)) {
+                allPreviousDaysWereNonBusiness = false;
+                break;
+              }
+            }
+            if (allPreviousDaysWereNonBusiness) {
+              shouldExecuteWeekly = true;
+              console.log(`[Scheduler Recorrente] Envio semanal postergado de feriado sendo executado no 1º dia útil da semana (${todayKey}).`);
+            }
+          }
+        }
+
+        if (shouldExecuteWeekly) {
+          await checkAndRun('WEEKLY_PENDING');
+          lastExecutedRuleDate[weeklyExecKey] = todayKey;
+        }
+      }
     }
 
-    if (
-      notificationSettingsMemory.dailyOverdueEnabled &&
-      currentHHMM === notificationSettingsMemory.dailyTime
-    ) {
-      await checkAndRun('DAILY_OVERDUE');
-    }
+    // 2. Regras Diárias (DAILY_OVERDUE e SLA_APPROACHING):
+    // Respeitam skipHolidaysAndWeekends para não incomodar colaboradores em dias de folga/feriados
+    const isTodayBusinessDay = isBusinessDay(now, notificationSettingsMemory.customHolidays);
+    const allowDaily = notificationSettingsMemory.skipHolidaysAndWeekends !== false ? isTodayBusinessDay : true;
 
-    if (
-      notificationSettingsMemory.slaApproachingEnabled &&
-      currentHHMM === notificationSettingsMemory.slaTime
-    ) {
-      await checkAndRun('SLA_APPROACHING');
+    if (allowDaily) {
+      if (
+        notificationSettingsMemory.dailyOverdueEnabled &&
+        currentHHMM === notificationSettingsMemory.dailyTime
+      ) {
+        await checkAndRun('DAILY_OVERDUE');
+      }
+
+      if (
+        notificationSettingsMemory.slaApproachingEnabled &&
+        currentHHMM === notificationSettingsMemory.slaTime
+      ) {
+        await checkAndRun('SLA_APPROACHING');
+      }
     }
   } catch (err: any) {
     console.warn('[Scheduler Recorrente] Erro na verificação periódica:', err.message);

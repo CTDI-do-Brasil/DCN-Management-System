@@ -18,10 +18,159 @@ export const STATUS_LABELS_EN: Record<DCNStatus, string> = {
   ENCERRADA: 'Closed'
 };
 
+export const BRAZIL_FIXED_HOLIDAYS: Record<string, string> = {
+  '01-01': 'Confraternização Universal (Ano Novo)',
+  '04-21': 'Tiradentes',
+  '05-01': 'Dia Mundial do Trabalho',
+  '09-07': 'Independência do Brasil',
+  '10-12': 'Nossa Senhora Aparecida',
+  '11-02': 'Finados',
+  '11-15': 'Proclamação da República',
+  '11-20': 'Dia Nacional de Zumbi e da Consciência Negra',
+  '12-25': 'Natal'
+};
+
+// Feriados móveis conhecidos (Carnaval, Sexta-feira Santa, Corpus Christi)
+export const BRAZIL_MOBILE_HOLIDAYS: Record<string, string> = {
+  '2025-03-03': 'Carnaval',
+  '2025-03-04': 'Carnaval',
+  '2025-04-18': 'Sexta-feira Santa',
+  '2025-06-19': 'Corpus Christi',
+  '2026-02-16': 'Carnaval',
+  '2026-02-17': 'Carnaval',
+  '2026-04-03': 'Sexta-feira Santa',
+  '2026-06-04': 'Corpus Christi',
+  '2027-02-08': 'Carnaval',
+  '2027-02-09': 'Carnaval',
+  '2027-03-26': 'Sexta-feira Santa',
+  '2027-05-27': 'Corpus Christi'
+};
+
+export function getHolidayInfo(
+  dateOrStr: Date | string,
+  customHolidays: string[] = []
+): { isHoliday: boolean; name?: string } {
+  let dateStr = '';
+  if (typeof dateOrStr === 'string') {
+    dateStr = dateOrStr.split('T')[0].split(' ')[0].trim();
+  } else {
+    const y = dateOrStr.getFullYear();
+    const m = String(dateOrStr.getMonth() + 1).padStart(2, '0');
+    const d = String(dateOrStr.getDate()).padStart(2, '0');
+    dateStr = `${y}-${m}-${d}`;
+  }
+
+  // 1. Feriados customizados / corporativos
+  if (customHolidays && customHolidays.includes(dateStr)) {
+    return { isHoliday: true, name: 'Feriado Corporativo / Emenda' };
+  }
+
+  // 2. Feriados móveis
+  if (BRAZIL_MOBILE_HOLIDAYS[dateStr]) {
+    return { isHoliday: true, name: BRAZIL_MOBILE_HOLIDAYS[dateStr] };
+  }
+
+  // 3. Feriados nacionais fixos (MM-DD)
+  const mmdd = dateStr.slice(5);
+  if (BRAZIL_FIXED_HOLIDAYS[mmdd]) {
+    return { isHoliday: true, name: BRAZIL_FIXED_HOLIDAYS[mmdd] };
+  }
+
+  return { isHoliday: false };
+}
+
+export function isBusinessDay(dateOrStr: Date | string, customHolidays: string[] = []): boolean {
+  let date: Date;
+  if (typeof dateOrStr === 'string') {
+    const clean = dateOrStr.split('T')[0].split(' ')[0].trim();
+    const [y, m, d] = clean.split('-').map(Number);
+    date = new Date(y, m - 1, d);
+  } else {
+    date = dateOrStr;
+  }
+  const dow = date.getDay();
+  // 0 = Domingo, 6 = Sábado
+  if (dow === 0 || dow === 6) return false;
+
+  const holiday = getHolidayInfo(date, customHolidays);
+  return !holiday.isHoliday;
+}
+
+export function getWeekKey(date: Date): string {
+  const target = new Date(date.valueOf());
+  const dayNr = (date.getDay() + 6) % 7;
+  target.setDate(target.getDate() - dayNr + 3);
+  const firstThursday = target.valueOf();
+  target.setMonth(0, 1);
+  if (target.getDay() !== 4) {
+    target.setMonth(0, 1 + ((4 - target.getDay()) + 7) % 7);
+  }
+  const weekNum = 1 + Math.ceil((firstThursday - target.valueOf()) / 604800000);
+  return `${target.getFullYear()}-W${String(weekNum).padStart(2, '0')}`;
+}
+
+export function getNextWeeklyExecutionInfo(
+  settings: NotificationSettings,
+  referenceDate = new Date()
+): {
+  executionDate: Date;
+  dateFormatted: string;
+  timeFormatted: string;
+  dayLabel: string;
+  isPostponed: boolean;
+  holidayName?: string;
+} {
+  const targetDow = settings.weeklyDayOfWeek ?? 1; // 1 = Segunda
+  const d = new Date(referenceDate);
+  d.setHours(0, 0, 0, 0);
+
+  // Calcular próximo dia da semana configurado
+  let daysToAdd = (targetDow - d.getDay() + 7) % 7;
+  if (daysToAdd === 0) {
+    const currentHHMM = referenceDate.toTimeString().slice(0, 5);
+    if (currentHHMM >= (settings.weeklyTime || '08:00')) {
+      daysToAdd = 7;
+    }
+  }
+  d.setDate(d.getDate() + daysToAdd);
+
+  const originalDate = new Date(d);
+  const originalHoliday = getHolidayInfo(originalDate, settings.customHolidays);
+  let isPostponed = false;
+  let holidayName: string | undefined = undefined;
+
+  const shouldPostpone = settings.postponeHolidayToNextBusinessDay !== false;
+  if (shouldPostpone && !isBusinessDay(d, settings.customHolidays)) {
+    isPostponed = true;
+    holidayName = originalHoliday.name || 'Feriado';
+    while (!isBusinessDay(d, settings.customHolidays)) {
+      d.setDate(d.getDate() + 1);
+    }
+  }
+
+  const dowNames = ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'];
+  const dayName = dowNames[d.getDay()];
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+
+  return {
+    executionDate: d,
+    dateFormatted: `${day}/${m}/${y}`,
+    timeFormatted: settings.weeklyTime || '08:00',
+    dayLabel: dayName,
+    isPostponed,
+    holidayName
+  };
+}
+
 export const DEFAULT_NOTIFICATION_SETTINGS: NotificationSettings = {
   weeklyPendingEnabled: true,
   weeklyDayOfWeek: 1, // 1 = Segunda-feira
   weeklyTime: '08:00',
+  postponeHolidayToNextBusinessDay: true,
+  skipHolidaysAndWeekends: true,
+  customHolidays: [],
 
   dailyOverdueEnabled: true,
   dailyTime: '08:00',

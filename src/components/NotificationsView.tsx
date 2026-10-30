@@ -33,7 +33,10 @@ import {
   filterDCNsForRule,
   resolveRecipientsForDCNs,
   resolveCcRecipientsForDCNs,
-  buildNotificationEmailHTML
+  buildNotificationEmailHTML,
+  getNextWeeklyExecutionInfo,
+  getHolidayInfo,
+  isBusinessDay
 } from '../utils/notificationTemplates';
 
 interface NotificationsViewProps {
@@ -67,6 +70,8 @@ export const NotificationsView: React.FC<NotificationsViewProps> = () => {
     html: string;
     ruleType?: NotificationRuleType;
   } | null>(null);
+
+  const nextWeeklyExecution = useMemo(() => getNextWeeklyExecutionInfo(settings), [settings]);
 
   useEffect(() => {
     const loadAll = async () => {
@@ -451,6 +456,50 @@ export const NotificationsView: React.FC<NotificationsViewProps> = () => {
                 />
               </div>
             </div>
+
+            {/* Política de Feriados & Próximo Envio Programado */}
+            <div className="space-y-2 pt-1 text-xs">
+              <label className="flex items-center space-x-2 text-slate-700 font-medium cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={settings.postponeHolidayToNextBusinessDay !== false}
+                  onChange={e => {
+                    const next = { ...settings, postponeHolidayToNextBusinessDay: e.target.checked };
+                    setSettings(next);
+                    handleSaveSettings(next);
+                  }}
+                  className="rounded text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5 cursor-pointer"
+                />
+                <span>Postergar para o 1º dia útil seguinte se o dia cair em feriado</span>
+              </label>
+
+              {nextWeeklyExecution && (
+                <div className={`p-2.5 rounded-xl border text-xs flex items-start space-x-2.5 transition-all ${
+                  nextWeeklyExecution.isPostponed
+                    ? 'bg-amber-50/90 border-amber-300 text-amber-950 shadow-xs'
+                    : 'bg-indigo-50/60 border-indigo-200/70 text-indigo-950'
+                }`}>
+                  <Calendar className={`w-4 h-4 mt-0.5 shrink-0 ${nextWeeklyExecution.isPostponed ? 'text-amber-600' : 'text-indigo-600'}`} />
+                  <div>
+                    {nextWeeklyExecution.isPostponed ? (
+                      <>
+                        <span className="font-bold flex items-center gap-1.5 text-amber-900">
+                          <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
+                          Próximo envio postergado por feriado:
+                        </span>
+                        <p className="mt-0.5 text-[11px] text-amber-800 leading-snug">
+                          Programado para <strong>{nextWeeklyExecution.dayLabel}, {nextWeeklyExecution.dateFormatted} às {nextWeeklyExecution.timeFormatted}</strong> (devido ao feriado de <em>{nextWeeklyExecution.holidayName}</em>).
+                        </p>
+                      </>
+                    ) : (
+                      <p className="text-[11px] leading-snug">
+                        Próximo envio previsto: <strong>{nextWeeklyExecution.dayLabel}, {nextWeeklyExecution.dateFormatted} às {nextWeeklyExecution.timeFormatted}</strong>.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
 
           <div className="pt-3 border-t border-slate-100 flex items-center justify-between gap-2">
@@ -519,7 +568,7 @@ export const NotificationsView: React.FC<NotificationsViewProps> = () => {
                   Frequência
                 </label>
                 <div className="px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white font-semibold text-slate-700">
-                  Diariamente (Seg a Sex)
+                  Dias Úteis (Seg a Sex)
                 </div>
               </div>
 
@@ -538,6 +587,22 @@ export const NotificationsView: React.FC<NotificationsViewProps> = () => {
                   className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white font-semibold text-slate-800"
                 />
               </div>
+            </div>
+
+            <div className="pt-1">
+              <label className="flex items-center space-x-2 text-xs text-slate-700 font-medium cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={settings.skipHolidaysAndWeekends !== false}
+                  onChange={e => {
+                    const next = { ...settings, skipHolidaysAndWeekends: e.target.checked };
+                    setSettings(next);
+                    handleSaveSettings(next);
+                  }}
+                  className="rounded text-rose-600 focus:ring-rose-500 w-3.5 h-3.5 cursor-pointer"
+                />
+                <span>Pausar envio automático em feriados e fins de semana</span>
+              </label>
             </div>
           </div>
 

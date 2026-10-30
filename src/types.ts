@@ -39,6 +39,10 @@ export interface NotificationSettings {
 
   responsibleAlertEnabled: boolean;
 
+  postponeHolidayToNextBusinessDay?: boolean; // Postergar envio semanal se o dia configurado for feriado
+  skipHolidaysAndWeekends?: boolean; // Não enviar notificações em feriados e fins de semana
+  customHolidays?: string[]; // Feriados corporativos/emendas no formato YYYY-MM-DD
+
   directRecipients?: string[]; // Lista de e-mails adicionais no campo Para: (To:)
   excludedUserEmails?: string[]; // E-mails de usuários do sistema removidos manualmente da lista Para:
   fixedRecipients: string[]; // Lista de e-mails em cópia (Cc:) / gestão
