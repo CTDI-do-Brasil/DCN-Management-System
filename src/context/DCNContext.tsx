@@ -818,6 +818,33 @@ export const DCNProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       ).catch(err => {
         console.warn('[DCNContext] Falha ao persistir avanço no PostgreSQL:', err);
       });
+
+      // Se a etapa avançou para ENCERRADA, acionar explicitamente a notificação de encerramento
+      if ((appliedUpdates as any).status === 'ENCERRADA') {
+        const targetDcnObj = dcns.find(d => d.id === id);
+        if (targetDcnObj) {
+          const closedDcn = { ...targetDcnObj, ...appliedUpdates };
+          const trainingAtt = (closedDcn.attachments || []).find(
+            a => a.category === 'REGISTRO_TREINAMENTO'
+          );
+          const attPayload = trainingAtt?.base64
+            ? {
+                base64: trainingAtt.base64,
+                filename: trainingAtt.name,
+                contentType: trainingAtt.type === 'PDF' ? 'application/pdf' : undefined
+              }
+            : undefined;
+
+          api.notifyDCNClosure(
+            id,
+            currentEngineer.name,
+            closedDcn,
+            attPayload
+          ).catch(err => {
+            console.warn('[DCNContext] Falha ao enviar e-mail de encerramento:', err);
+          });
+        }
+      }
     }
   };
 
@@ -1196,24 +1223,40 @@ export const DCNProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     file: File,
     category: DCNAttachment['category'] = 'DOCUMENTO_COMPLEMENTAR'
   ): Promise<DCNAttachment> => {
+    // Converter arquivo para base64 para garantir suporte offline e anexo em e-mail
+    let fileBase64: string | undefined = undefined;
+    try {
+      fileBase64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+    } catch {}
+
+    const ext = file.name.split('.').pop()?.toLowerCase() || '';
+    let type: DCNAttachment['type'] = 'DOC';
+    if (file.type.includes('pdf') || ext === 'pdf') type = 'PDF';
+    else if (file.type.startsWith('image/') || ['png', 'jpg', 'jpeg', 'webp'].includes(ext)) type = 'IMG';
+    else if (file.type.startsWith('video/') || ['mp4', 'mov', 'webm'].includes(ext)) type = 'VIDEO';
+    else if (['xls', 'xlsx', 'csv'].includes(ext)) type = 'SPREADSHEET';
+
     try {
       const savedAttachment = await api.uploadAttachment(dcnId, file, category, currentEngineer.name);
+      const enrichedAttachment: DCNAttachment = {
+        ...savedAttachment,
+        base64: fileBase64
+      };
       setDcns(prev => prev.map(dcn => {
         if (dcn.id !== dcnId) return dcn;
         return {
           ...dcn,
-          attachments: [savedAttachment, ...(dcn.attachments || [])]
+          attachments: [enrichedAttachment, ...(dcn.attachments || []).filter(a => a.id !== enrichedAttachment.id)]
         };
       }));
-      return savedAttachment;
+      return enrichedAttachment;
     } catch (error) {
       console.warn('[DCNContext] Falha no upload MinIO via API, usando fallback local:', error);
-      const ext = file.name.split('.').pop()?.toLowerCase() || '';
-      let type: DCNAttachment['type'] = 'DOC';
-      if (file.type.includes('pdf') || ext === 'pdf') type = 'PDF';
-      else if (file.type.startsWith('image/') || ['png', 'jpg', 'jpeg', 'webp'].includes(ext)) type = 'IMG';
-      else if (file.type.startsWith('video/') || ['mp4', 'mov', 'webm'].includes(ext)) type = 'VIDEO';
-      else if (['xls', 'xlsx', 'csv'].includes(ext)) type = 'SPREADSHEET';
 
       const fallbackAttachment: DCNAttachment = {
         id: `att-${Date.now()}`,
@@ -1223,7 +1266,8 @@ export const DCNProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         category,
         uploadedAt: new Date().toISOString().split('T')[0],
         uploadedBy: currentEngineer.name,
-        url: URL.createObjectURL(file)
+        url: URL.createObjectURL(file),
+        base64: fileBase64
       };
 
       setDcns(prev => prev.map(dcn => {

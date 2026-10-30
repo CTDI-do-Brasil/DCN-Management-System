@@ -647,122 +647,145 @@ app.post('/api/dcns', async (req: Request, res: Response) => {
 
 // PUT /api/dcns/:id - Update DCN fields & audit
 app.put('/api/dcns/:id', async (req: Request, res: Response) => {
+  const { id } = req.params;
+  const { auditComment, user, userRole, ...fields } = req.body;
+
+  let currentDCN: any = null;
   try {
-    const { id } = req.params;
-    const { auditComment, user, userRole, ...fields } = req.body;
+    currentDCN = await prisma.dCN.findFirst({
+      where: { OR: [{ id }, { dcnNumber: id }] }
+    });
+  } catch {
+    // Prisma offline
+  }
 
-    const currentDCN = await prisma.dCN.findUnique({ where: { id } });
-    if (!currentDCN) {
-      return res.status(404).json({ error: 'DCN not found' });
-    }
+  const isClosing = fields.status === 'ENCERRADA' && (!currentDCN || currentDCN.status !== 'ENCERRADA');
 
-    if (fields.status === 'IMPLEMENTADA' && currentDCN.status === 'PRONTA_IMPLEMENTACAO') {
-      const training = await prisma.trainingRecord.findUnique({ where: { dcnId: id } });
-      if (!training?.scheduledDate || !training.scheduledDate.trim()) {
-        return res.status(400).json({ error: 'O treinamento precisa estar agendado antes de avançar para a etapa de Implementação.' });
-      }
-    }
-
-    const updated = await prisma.$transaction(async (tx) => {
-      // Create audit entry if status changed or comment provided
-      if (auditComment || (fields.status && fields.status !== currentDCN.status)) {
-        await tx.auditLogEntry.create({
-          data: {
-            dcnId: id,
-            timestamp: new Date().toISOString(),
-            user: user || 'Engenharia CTDI',
-            userRole: userRole || 'Engenheiro Responsável',
-            action: fields.status && fields.status !== currentDCN.status ? `Status alterado para ${fields.status}` : 'Atualização de dados',
-            fromStatus: currentDCN.status,
-            toStatus: fields.status || currentDCN.status,
-            comment: auditComment || 'Atualização via sistema'
-          }
-        });
-      }
-
-      // Filter scalar fields for direct update
-      const updateData: any = {};
-      const allowedFields = [
-        'dcnNumber', 'revision', 'productFamily', 'title', 'description', 'area', 'responsible', 'receivedDate', 'dueDate',
-        'status', 'priority', 'needsMaterial', 'needsTraining', 'implementationDate',
-        'implementedBy', 'engineeringReview', 'closureNotes', 'closedAt', 'closedBy'
-      ];
-
-      for (const field of allowedFields) {
-        if (fields[field] !== undefined) {
-          updateData[field] = fields[field];
+  try {
+    if (currentDCN) {
+      if (fields.status === 'IMPLEMENTADA' && currentDCN.status === 'PRONTA_IMPLEMENTACAO') {
+        const training = await prisma.trainingRecord.findUnique({ where: { dcnId: currentDCN.id } });
+        if (!training?.scheduledDate || !training.scheduledDate.trim()) {
+          return res.status(400).json({ error: 'O treinamento precisa estar agendado antes de avançar para a etapa de Implementação.' });
         }
       }
 
-      // Sync materials if provided in update payload
-      if (Array.isArray(fields.materials)) {
-        await tx.materialItem.deleteMany({ where: { dcnId: id } });
-        if (fields.materials.length > 0) {
-          await tx.materialItem.createMany({
-            data: fields.materials.map((m: any) => ({
-              dcnId: id,
-              code: m.code || '',
-              description: m.description || '',
-              quantity: Number(m.quantity) || 1,
-              unit: m.unit || 'UN',
-              supplier: m.supplier || '',
-              expectedDate: m.expectedDate || '',
-              arrivalDate: m.arrivalDate || null,
-              status: m.status || 'PENDENTE',
-              notes: m.notes || null
-            }))
+      const updated = await prisma.$transaction(async (tx) => {
+        // Create audit entry if status changed or comment provided
+        if (auditComment || (fields.status && fields.status !== currentDCN.status)) {
+          await tx.auditLogEntry.create({
+            data: {
+              dcnId: currentDCN.id,
+              timestamp: new Date().toISOString(),
+              user: user || 'Engenharia CTDI',
+              userRole: userRole || 'Engenheiro Responsável',
+              action: fields.status && fields.status !== currentDCN.status ? `Status alterado para ${fields.status}` : 'Atualização de dados',
+              fromStatus: currentDCN.status,
+              toStatus: fields.status || currentDCN.status,
+              comment: auditComment || 'Atualização via sistema'
+            }
           });
         }
-      }
 
-      // Sync training if provided in update payload
-      if (fields.training && typeof fields.training === 'object') {
-        const scheduledDateVal = fields.training.scheduledDate || null;
-        await tx.trainingRecord.upsert({
-          where: { dcnId: id },
-          update: {
-            instructor: fields.training.instructor || fields.responsible || currentDCN.responsible,
-            targetAudience: fields.training.targetAudience || 'Líderes e Técnicos',
-            department: fields.training.department || fields.area || currentDCN.area,
-            scheduledDate: scheduledDateVal,
-            status: scheduledDateVal ? 'AGENDADO' : 'PENDENTE'
-          },
-          create: {
-            dcnId: id,
-            instructor: fields.training.instructor || fields.responsible || currentDCN.responsible,
-            targetAudience: fields.training.targetAudience || 'Líderes e Técnicos',
-            department: fields.training.department || fields.area || currentDCN.area,
-            scheduledDate: scheduledDateVal,
-            status: scheduledDateVal ? 'AGENDADO' : 'PENDENTE'
+        // Filter scalar fields for direct update
+        const updateData: any = {};
+        const allowedFields = [
+          'dcnNumber', 'revision', 'productFamily', 'title', 'description', 'area', 'responsible', 'receivedDate', 'dueDate',
+          'status', 'priority', 'needsMaterial', 'needsTraining', 'implementationDate',
+          'implementedBy', 'engineeringReview', 'closureNotes', 'closedAt', 'closedBy'
+        ];
+
+        for (const field of allowedFields) {
+          if (fields[field] !== undefined) {
+            updateData[field] = fields[field];
           }
+        }
+
+        // Sync materials if provided in update payload
+        if (Array.isArray(fields.materials)) {
+          await tx.materialItem.deleteMany({ where: { dcnId: currentDCN.id } });
+          if (fields.materials.length > 0) {
+            await tx.materialItem.createMany({
+              data: fields.materials.map((m: any) => ({
+                dcnId: currentDCN.id,
+                code: m.code || '',
+                description: m.description || '',
+                quantity: Number(m.quantity) || 1,
+                unit: m.unit || 'UN',
+                supplier: m.supplier || '',
+                expectedDate: m.expectedDate || '',
+                arrivalDate: m.arrivalDate || null,
+                status: m.status || 'PENDENTE',
+                notes: m.notes || null
+              }))
+            });
+          }
+        }
+
+        // Sync training if provided in update payload
+        if (fields.training && typeof fields.training === 'object') {
+          const scheduledDateVal = fields.training.scheduledDate || null;
+          await tx.trainingRecord.upsert({
+            where: { dcnId: currentDCN.id },
+            update: {
+              instructor: fields.training.instructor || fields.responsible || currentDCN.responsible,
+              targetAudience: fields.training.targetAudience || 'Líderes e Técnicos',
+              department: fields.training.department || fields.area || currentDCN.area,
+              scheduledDate: scheduledDateVal,
+              status: scheduledDateVal ? 'AGENDADO' : 'PENDENTE'
+            },
+            create: {
+              dcnId: currentDCN.id,
+              instructor: fields.training.instructor || fields.responsible || currentDCN.responsible,
+              targetAudience: fields.training.targetAudience || 'Líderes e Técnicos',
+              department: fields.training.department || fields.area || currentDCN.area,
+              scheduledDate: scheduledDateVal,
+              status: scheduledDateVal ? 'AGENDADO' : 'PENDENTE'
+            }
+          });
+        }
+
+        return tx.dCN.update({
+          where: { id: currentDCN.id },
+          data: updateData,
+          include: {
+            materials: true,
+            training: { include: { attendeesList: true } },
+            implementationChecklist: true,
+            attachments: true,
+            auditTrail: { orderBy: { createdAt: 'desc' } }
+          }
+        });
+      });
+
+      // Se a DCN foi encerrada nesta atualização, disparar automaticamente e-mail de encerramento
+      if (isClosing) {
+        sendDCNClosureNotification(currentDCN.id, user || currentDCN.closedBy || 'Engenharia CTDI', updated).catch(err => {
+          console.warn('[DCN Closure] Falha ao enviar notificação de encerramento:', err);
         });
       }
 
-      return tx.dCN.update({
-        where: { id },
-        data: updateData,
-        include: {
-          materials: true,
-          training: { include: { attendeesList: true } },
-          implementationChecklist: true,
-          attachments: true,
-          auditTrail: { orderBy: { createdAt: 'desc' } }
-        }
-      });
-    });
-
-    // Se a DCN foi encerrada nesta atualização, disparar automaticamente e-mail de encerramento
-    if (fields.status === 'ENCERRADA' && currentDCN.status !== 'ENCERRADA') {
-      sendDCNClosureNotification(id, user || currentDCN.closedBy || 'Engenharia CTDI').catch(err => {
-        console.warn('[DCN Closure] Falha ao enviar notificação de encerramento:', err);
-      });
+      return res.json(updated);
     }
-
-    res.json(updated);
   } catch (error: any) {
-    console.error('Error updating DCN:', error);
-    res.status(500).json({ error: 'Failed to update DCN', details: error.message });
+    console.warn('[PUT /api/dcns/:id] DB indisponível, usando contingência local:', error.message);
   }
+
+  // Fallback offline / contingência
+  const fallbackDCN = {
+    id,
+    ...fields,
+    status: fields.status || 'RECEBIDA',
+    updatedAt: new Date().toISOString()
+  };
+
+  if (isClosing) {
+    sendDCNClosureNotification(id, user || 'Engenharia CTDI', fallbackDCN).catch(err => {
+      console.warn('[DCN Closure Fallback] Falha ao enviar notificação de encerramento:', err);
+    });
+  }
+
+  res.json(fallbackDCN);
 });
 
 // DELETE /api/dcns/:id
@@ -1035,7 +1058,7 @@ app.delete('/api/technicians/:id', async (req: Request, res: Response) => {
 // Rotas de Anexos com MinIO (PDF / Imagens / Vídeos / Documentos)
 // ==========================================
 
-// Upload de anexo vinculado a uma DCN
+// Upload de anexo vinculado a uma DCN com contingência local
 app.post('/api/dcns/:id/attachments', upload.single('file'), async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
@@ -1047,77 +1070,77 @@ app.post('/api/dcns/:id/attachments', upload.single('file'), async (req: Request
 
     const { category = 'DOCUMENTO_COMPLEMENTAR', uploadedBy = 'Engenharia' } = req.body;
 
-    // Verificar se a DCN existe (por ID interno ou dcnNumber)
-    const dcn = await prisma.dCN.findFirst({
-      where: {
-        OR: [
-          { id },
-          { dcnNumber: id }
-        ]
-      }
-    });
-    if (!dcn) {
-      return res.status(404).json({ error: 'DCN não encontrada.' });
-    }
-
     const fileExt = path.extname(file.originalname);
     const sanitizedBase = path.basename(file.originalname, fileExt).replace(/[^a-zA-Z0-9_-]/g, '_');
-    const objectKey = `dcns/${dcn.id}/${Date.now()}-${sanitizedBase}${fileExt}`;
+    const objectKey = `dcns/${id}/${Date.now()}-${sanitizedBase}${fileExt}`;
+    const localFileName = objectKey.replace(/\//g, '_');
 
-    // Upload do buffer para o bucket do MinIO (com contingência em pasta local)
-    try {
-      await uploadFileToMinio(objectKey, file.buffer, file.size, file.mimetype);
-    } catch (minioErr) {
-      console.warn('[MinIO] Upload no MinIO indisponível, gravando em contingência local:', minioErr);
-    }
-
+    // 1. Salvar cópia local em uploads/
     try {
       const uploadsDir = path.join(process.cwd(), 'uploads');
       if (!fs.existsSync(uploadsDir)) {
         fs.mkdirSync(uploadsDir, { recursive: true });
       }
-      fs.writeFileSync(path.join(uploadsDir, objectKey.replace(/\//g, '_')), file.buffer);
+      fs.writeFileSync(path.join(uploadsDir, localFileName), file.buffer);
     } catch (fsErr) {
       console.warn('[Uploads FS] Falha ao gravar cópia local:', fsErr);
     }
 
-    // Salvar registro no banco de dados via Prisma
-    const attachment = await prisma.dCNAttachment.create({
-      data: {
-        dcnId: dcn.id,
-        name: file.originalname,
-        type: detectFileType(file.mimetype, file.originalname),
-        size: formatFileSize(file.size),
-        category: category,
-        uploadedAt: new Date().toISOString().split('T')[0],
-        uploadedBy: uploadedBy,
-        objectKey: objectKey,
-        mimeType: file.mimetype,
-        url: '' // atualizado a seguir
+    // 2. Upload MinIO se disponível
+    try {
+      await uploadFileToMinio(objectKey, file.buffer, file.size, file.mimetype);
+    } catch (minioErr) {
+      // MinIO indisponível
+    }
+
+    let dcn: any = null;
+    try {
+      dcn = await prisma.dCN.findFirst({
+        where: { OR: [{ id }, { dcnNumber: id }] }
+      });
+    } catch {}
+
+    const newAttachment = {
+      id: `att-${Date.now()}`,
+      dcnId: dcn ? dcn.id : id,
+      name: file.originalname,
+      type: detectFileType(file.mimetype, file.originalname),
+      size: formatFileSize(file.size),
+      category: category as any,
+      uploadedAt: new Date().toISOString().split('T')[0],
+      uploadedBy: uploadedBy,
+      objectKey: objectKey,
+      mimeType: file.mimetype,
+      url: `/api/attachments/${localFileName}/file`
+    };
+
+    try {
+      if (dcn) {
+        const attachment = await prisma.dCNAttachment.create({
+          data: newAttachment
+        });
+        await prisma.dCNAttachment.update({
+          where: { id: attachment.id },
+          data: { url: `/api/attachments/${attachment.id}/file` }
+        });
+        await prisma.auditLogEntry.create({
+          data: {
+            dcnId: dcn.id,
+            timestamp: new Date().toISOString(),
+            user: uploadedBy,
+            userRole: 'Engenheiro Responsável',
+            action: 'Anexo Adicionado',
+            comment: `Arquivo "${file.originalname}" (${formatFileSize(file.size)}) adicionado aos anexos.`
+          }
+        });
+        return res.status(201).json(attachment);
       }
-    });
+    } catch {}
 
-    const updatedAttachment = await prisma.dCNAttachment.update({
-      where: { id: attachment.id },
-      data: { url: `/api/attachments/${attachment.id}/file` }
-    });
-
-    // Registrar na trilha de auditoria da DCN
-    await prisma.auditLogEntry.create({
-      data: {
-        dcnId: dcn.id,
-        timestamp: new Date().toISOString(),
-        user: uploadedBy,
-        userRole: 'Engenheiro Responsável',
-        action: 'Anexo Adicionado',
-        comment: `Arquivo "${file.originalname}" (${formatFileSize(file.size)}) enviado para o MinIO.`
-      }
-    });
-
-    res.status(201).json(updatedAttachment);
+    return res.status(201).json(newAttachment);
   } catch (error: any) {
-    console.error('[Upload Anexo MinIO] Erro:', error);
-    res.status(500).json({ error: 'Falha ao processar upload do anexo no MinIO', details: error.message });
+    console.error('[Upload Anexo] Erro:', error);
+    res.status(500).json({ error: 'Falha ao processar upload do anexo', details: error.message });
   }
 });
 
@@ -1267,21 +1290,35 @@ app.delete('/api/notifications/logs', (_req: Request, res: Response) => {
 // ==========================================
 async function sendDCNClosureNotification(
   dcnId: string,
-  performedBy?: string
+  performedBy?: string,
+  clientDcn?: any,
+  clientAttachment?: { base64: string; filename: string; contentType?: string }
 ): Promise<{ success: boolean; smtpSent?: boolean; detail?: string; error?: string }> {
   try {
-    const fullDcn = await prisma.dCN.findUnique({
-      where: { id: dcnId },
-      include: {
-        materials: true,
-        training: { include: { attendeesList: true } },
-        implementationChecklist: true,
-        attachments: true,
-        auditTrail: { orderBy: { createdAt: 'desc' } }
-      }
-    });
+    let fullDcn: any = null;
+    try {
+      fullDcn = await prisma.dCN.findFirst({
+        where: { OR: [{ id: dcnId }, { dcnNumber: dcnId }] },
+        include: {
+          materials: true,
+          training: { include: { attendeesList: true } },
+          implementationChecklist: true,
+          attachments: true,
+          auditTrail: { orderBy: { createdAt: 'desc' } }
+        }
+      });
+    } catch {
+      // Prisma offline
+    }
 
-    if (!fullDcn) return { success: false, detail: 'DCN não encontrada' };
+    if (!fullDcn && clientDcn) {
+      fullDcn = clientDcn;
+    }
+
+    if (!fullDcn) {
+      console.warn(`[sendDCNClosureNotification] DCN ${dcnId} não localizada no banco nem no payload.`);
+      return { success: false, detail: 'DCN não encontrada' };
+    }
 
     let usersList: any[] = [];
     try {
@@ -1290,34 +1327,103 @@ async function sendDCNClosureNotification(
       usersList = INITIAL_USERS;
     }
 
-    // 1. Localizar arquivo oficial de treinamento anexado (categoria REGISTRO_TREINAMENTO)
-    const trainingAttachment = fullDcn.attachments?.find(
-      att => att.category === 'REGISTRO_TREINAMENTO'
-    );
-
+    // 1. Localizar e preparar arquivo oficial de treinamento (categoria REGISTRO_TREINAMENTO)
     const attachmentsToSend: { filename: string; content: Buffer; contentType?: string }[] = [];
     let hasTrainingAttachment = false;
     let attachmentName: string | undefined = undefined;
 
-    if (trainingAttachment && trainingAttachment.objectKey) {
-      const buffer = await getAttachmentBuffer(trainingAttachment.objectKey);
-      if (buffer) {
-        hasTrainingAttachment = true;
+    // A) Se anexo veio do cliente em base64
+    if (clientAttachment && clientAttachment.base64 && clientAttachment.base64.trim()) {
+      try {
+        const cleanBase64 = clientAttachment.base64.includes(',')
+          ? clientAttachment.base64.split(',')[1]
+          : clientAttachment.base64;
+        const buf = Buffer.from(cleanBase64, 'base64');
+        if (buf.length > 0) {
+          hasTrainingAttachment = true;
+          attachmentName = clientAttachment.filename || 'Registro_Treinamento.pdf';
+          attachmentsToSend.push({
+            filename: attachmentName,
+            content: buf,
+            contentType: clientAttachment.contentType || 'application/pdf'
+          });
+        }
+      } catch (err: any) {
+        console.warn('[DCN Encerramento] Erro ao decodificar base64 do cliente:', err.message);
+      }
+    }
+
+    // B) Se não veio do cliente, buscar nos anexos da DCN
+    if (!hasTrainingAttachment) {
+      const trainingAttachment = (fullDcn.attachments || []).find(
+        (att: any) => att.category === 'REGISTRO_TREINAMENTO'
+      );
+
+      if (trainingAttachment) {
         attachmentName = trainingAttachment.name;
-        attachmentsToSend.push({
-          filename: trainingAttachment.name,
-          content: buffer,
-          contentType: trainingAttachment.mimeType || 'application/pdf'
-        });
+
+        // 1. Tentar ler de base64 no anexo
+        if (trainingAttachment.base64) {
+          try {
+            const clean = trainingAttachment.base64.includes(',')
+              ? trainingAttachment.base64.split(',')[1]
+              : trainingAttachment.base64;
+            const buf = Buffer.from(clean, 'base64');
+            if (buf.length > 0) {
+              hasTrainingAttachment = true;
+              attachmentsToSend.push({
+                filename: trainingAttachment.name,
+                content: buf,
+                contentType: trainingAttachment.mimeType || 'application/pdf'
+              });
+            }
+          } catch {}
+        }
+
+        // 2. Tentar via MinIO ou uploads/
+        if (!hasTrainingAttachment && trainingAttachment.objectKey) {
+          const buffer = await getAttachmentBuffer(trainingAttachment.objectKey);
+          if (buffer) {
+            hasTrainingAttachment = true;
+            attachmentsToSend.push({
+              filename: trainingAttachment.name,
+              content: buffer,
+              contentType: trainingAttachment.mimeType || 'application/pdf'
+            });
+          }
+        }
+
+        // 3. Fallback: buscar na pasta uploads/ por nome de arquivo
+        if (!hasTrainingAttachment) {
+          try {
+            const uploadsDir = path.join(process.cwd(), 'uploads');
+            if (fs.existsSync(uploadsDir)) {
+              const files = fs.readdirSync(uploadsDir);
+              const match = files.find(f => f.includes(trainingAttachment.name) || f.endsWith(trainingAttachment.name));
+              if (match) {
+                const buf = fs.readFileSync(path.join(uploadsDir, match));
+                hasTrainingAttachment = true;
+                attachmentsToSend.push({
+                  filename: trainingAttachment.name,
+                  content: buf,
+                  contentType: trainingAttachment.mimeType || 'application/pdf'
+                });
+              }
+            }
+          } catch {}
+        }
       }
     }
 
     // 2. Destinatários: Para (diretos + responsável) e Cc (cópia fixa)
     const { to, cc } = resolveClosureRecipients(fullDcn as any, usersList, notificationSettingsMemory);
 
-    if (to.length === 0 && cc.length === 0) {
+    const safeTo = to.length > 0 ? to : (notificationSettingsMemory.fixedRecipients || []);
+    const safeCc = to.length > 0 ? cc : [];
+
+    if (safeTo.length === 0 && safeCc.length === 0) {
       console.log(`[DCN Encerramento] Sem destinatários configurados para ${fullDcn.dcnNumber}.`);
-      return { success: false, detail: 'Nenhum destinatário configurado' };
+      return { success: false, detail: 'Nenhum destinatário configurado nas opções de notificação.' };
     }
 
     // 3. Montar corpo de e-mail corporativo simplificado
@@ -1333,8 +1439,8 @@ async function sendDCNClosureNotification(
     if (notificationSettingsMemory.smtpEnabled) {
       const smtpRes = await sendSmtpEmail({
         settings: notificationSettingsMemory,
-        to,
-        cc,
+        to: safeTo,
+        cc: safeCc,
         subject,
         html,
         attachments: attachmentsToSend
@@ -1353,27 +1459,29 @@ async function sendDCNClosureNotification(
       ruleType: 'WEEKLY_PENDING' as any,
       title: `Encerramento de DCN (${fullDcn.dcnNumber})`,
       subject,
-      recipients: to,
-      ccRecipients: cc,
+      recipients: safeTo,
+      ccRecipients: safeCc,
       dcnCount: 1,
       dcnNumbers: [fullDcn.dcnNumber],
       triggerMode: 'AUTOMATICO',
       status: smtpSent ? 'ENVIADO_SMTP' : 'REGISTRADO_SISTEMA',
       htmlPreview: html
     };
-    notificationLogsMemory = [closureLog, ...notificationLogsMemory].slice(0, 100);
+    notificationLogsMemory = [closureLog, ...notificationLogsMemory.filter(l => l.dcnCount && l.dcnCount > 0)].slice(0, 100);
 
-    // 6. Trilha de Auditoria
-    await prisma.auditLogEntry.create({
-      data: {
-        dcnId: fullDcn.id,
-        timestamp: new Date().toISOString(),
-        user: performedBy || fullDcn.closedBy || 'Sistema',
-        userRole: 'Engenharia de Processos',
-        action: 'Notificação de Encerramento',
-        comment: `Comunicado de encerramento enviado por e-mail para: [${to.join(', ')}]${cc.length > 0 ? ` (Cc: [${cc.join(', ')}])` : ''}${hasTrainingAttachment ? ` com anexo de treinamento "${attachmentName}"` : ' (sem anexo de treinamento)'}. Status: ${smtpSent ? 'Enviado via SMTP' : 'Gravado no sistema'}.`
-      }
-    });
+    // 6. Trilha de Auditoria (protegido se DB offline)
+    try {
+      await prisma.auditLogEntry.create({
+        data: {
+          dcnId: fullDcn.id,
+          timestamp: new Date().toISOString(),
+          user: performedBy || fullDcn.closedBy || 'Sistema',
+          userRole: 'Engenharia de Processos',
+          action: 'Notificação de Encerramento',
+          comment: `Comunicado de encerramento enviado por e-mail para: [${safeTo.join(', ')}]${safeCc.length > 0 ? ` (Cc: [${safeCc.join(', ')}])` : ''}${hasTrainingAttachment ? ` com anexo de treinamento "${attachmentName}"` : ' (sem anexo de treinamento)'}. Status: ${smtpSent ? 'Enviado via SMTP' : 'Gravado no sistema'}.`
+        }
+      });
+    } catch {}
 
     return { success: true, smtpSent, detail: detailMsg };
   } catch (err: any) {
@@ -1385,8 +1493,16 @@ async function sendDCNClosureNotification(
 // Rota explícita para notificação de encerramento
 app.post('/api/dcns/:id/notify-closure', async (req: Request, res: Response) => {
   const { id } = req.params;
-  const { user } = req.body || {};
-  const result = await sendDCNClosureNotification(id, user);
+  const { user, dcn, attachmentBase64, attachmentName, attachmentType, settings } = req.body || {};
+  if (settings) {
+    notificationSettingsMemory = { ...notificationSettingsMemory, ...settings };
+  }
+  const result = await sendDCNClosureNotification(
+    id,
+    user,
+    dcn,
+    attachmentBase64 ? { base64: attachmentBase64, filename: attachmentName, contentType: attachmentType } : undefined
+  );
   res.json(result);
 });
 

@@ -273,13 +273,26 @@ export const api = {
     return handleResponse<{ success: boolean }>(res);
   },
 
-  async notifyDCNClosure(id: string, user?: string): Promise<{ success: boolean; smtpSent?: boolean; detail?: string }> {
+  async notifyDCNClosure(
+    id: string,
+    user?: string,
+    dcn?: DCN,
+    attachmentData?: { base64: string; filename: string; contentType?: string },
+    settings?: NotificationSettings
+  ): Promise<{ success: boolean; smtpSent?: boolean; detail?: string; error?: string }> {
     const res = await fetch(`${API_BASE}/dcns/${id}/notify-closure`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ user }),
+      body: JSON.stringify({
+        user,
+        dcn,
+        attachmentBase64: attachmentData?.base64,
+        attachmentName: attachmentData?.filename,
+        attachmentType: attachmentData?.contentType,
+        settings
+      }),
     });
-    return handleResponse<{ success: boolean; smtpSent?: boolean; detail?: string }>(res);
+    return handleResponse<{ success: boolean; smtpSent?: boolean; detail?: string; error?: string }>(res);
   },
 
   // Materials

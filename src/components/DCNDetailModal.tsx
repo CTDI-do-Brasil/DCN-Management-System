@@ -32,7 +32,8 @@ import {
   Video,
   Eye,
   Loader2,
-  Edit3
+  Edit3,
+  Mail
 } from 'lucide-react';
 import { useDCN } from '../context/DCNContext';
 import { useAuth } from '../context/AuthContext';
@@ -114,6 +115,58 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
     });
     setDateSaveSuccess(true);
     setTimeout(() => setDateSaveSuccess(false), 2000);
+  };
+
+  const [isSendingClosureEmail, setIsSendingClosureEmail] = useState(false);
+
+  const handleSendClosureEmail = async () => {
+    setIsSendingClosureEmail(true);
+    try {
+      const trainingAtt = (dcn.attachments || []).find(
+        a => a.category === 'REGISTRO_TREINAMENTO'
+      );
+
+      let base64 = trainingAtt?.base64;
+      if (!base64 && trainingAtt?.url && trainingAtt.url.startsWith('blob:')) {
+        try {
+          const res = await fetch(trainingAtt.url);
+          const blob = await res.blob();
+          base64 = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result as string);
+            reader.onerror = reject;
+            reader.readAsDataURL(blob);
+          });
+        } catch (e) {
+          console.warn('Erro ao ler blob do anexo:', e);
+        }
+      }
+
+      const attachmentPayload = base64
+        ? {
+            base64,
+            filename: trainingAtt?.name || 'Registro_Treinamento.pdf',
+            contentType: 'application/pdf'
+          }
+        : undefined;
+
+      const result = await api.notifyDCNClosure(
+        dcn.id,
+        currentEngineer.name,
+        dcn,
+        attachmentPayload
+      );
+
+      if (result.smtpSent) {
+        alert(`✅ E-mail de encerramento enviado com sucesso para os destinatários!\n\n${result.detail || ''}`);
+      } else {
+        alert(`ℹ️ Notificação de encerramento processada:\n${result.detail || result.error || 'Registrada no sistema'}`);
+      }
+    } catch (err: any) {
+      alert(`❌ Erro ao enviar e-mail de encerramento: ${err.message}`);
+    } finally {
+      setIsSendingClosureEmail(false);
+    }
   };
 
   const statusConfig = STATUS_CONFIG[dcn.status];
@@ -440,10 +493,22 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
             )}
 
             {dcn.status === 'ENCERRADA' && (
-              <span className="inline-flex items-center text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-1 rounded-md">
-                <CheckCircle2 className="w-4 h-4 mr-1.5 text-emerald-600" />
-                DCN Concluída & Encerrada
-              </span>
+              <div className="flex items-center space-x-2">
+                <span className="inline-flex items-center text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-1 rounded-md">
+                  <CheckCircle2 className="w-4 h-4 mr-1.5 text-emerald-600" />
+                  DCN Concluída & Encerrada
+                </span>
+                <button
+                  type="button"
+                  onClick={handleSendClosureEmail}
+                  disabled={isSendingClosureEmail}
+                  className="inline-flex items-center px-3 py-1 rounded-md text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 shadow-sm cursor-pointer transition-colors disabled:opacity-50"
+                  title="Enviar ou reenviar e-mail formal de encerramento com o anexo de treinamento aos destinatários"
+                >
+                  <Mail className="w-3.5 h-3.5 mr-1.5" />
+                  {isSendingClosureEmail ? 'Disparando...' : 'Reenviar E-mail com Evidência'}
+                </button>
+              </div>
             )}
           </div>
         </div>

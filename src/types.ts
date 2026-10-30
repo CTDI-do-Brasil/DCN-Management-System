@@ -150,6 +150,7 @@ export interface DCNAttachment {
   url?: string;
   objectKey?: string;
   mimeType?: string;
+  base64?: string;
 }
 
 export interface AuditLogEntry {
