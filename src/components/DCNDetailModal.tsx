@@ -41,6 +41,7 @@ import { DCN, DCNStatus, MaterialItem, MaterialStatus, DCNAttachment } from '../
 import { STATUS_CONFIG, PRIORITY_CONFIG, MATERIAL_STATUS_CONFIG, formatDate, isOverdue, getDaysRemaining, isWaitingMaterials } from '../utils/helpers';
 import { api } from '../services/api';
 import { NewDCNModal } from './NewDCNModal';
+import { generateTrainingEvidencePDF } from '../utils/pdfGenerator';
 
 interface DCNDetailModalProps {
   dcn: DCN;
@@ -118,7 +119,6 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
   };
 
   const [isSendingClosureEmail, setIsSendingClosureEmail] = useState(false);
-  const closureFileInputRef = useRef<HTMLInputElement | null>(null);
 
   const executeSendWithAttachment = async (base64: string, filename: string) => {
     setIsSendingClosureEmail(true);
@@ -146,61 +146,45 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
     }
   };
 
-  const handleClosureFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files && e.target.files[0];
-    if (!file) return;
-    e.target.value = '';
-
-    setIsSendingClosureEmail(true);
-    try {
-      // 1. Converter arquivo selecionado para Base64
-      const base64 = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result as string);
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
-      });
-
-      // 2. Salvar também nos anexos da DCN (com base64 garantido)
-      uploadAttachmentFile(dcn.id, file, 'REGISTRO_TREINAMENTO');
-
-      // 3. Disparar e-mail com o anexo
-      await executeSendWithAttachment(base64, file.name);
-    } catch (err: any) {
-      alert(`❌ Erro ao processar anexo: ${err.message}`);
-      setIsSendingClosureEmail(false);
-    }
-  };
-
   const handleSendClosureEmail = async () => {
-    // Localizar anexo de treinamento ou qualquer PDF na DCN
+    // 1. Localizar o anexo de evidência de treinamento já vinculado à DCN
     const trainingAtt = (dcn.attachments || []).find(
-      a => a.category === 'REGISTRO_TREINAMENTO'
+      a => a.category === 'REGISTRO_TREINAMENTO' ||
+           (a.name && (a.name.toLowerCase().includes('treinamento') || a.name.toLowerCase().includes('registro')))
     ) || (dcn.attachments || []).find(
       a => a.type === 'PDF' || (a.name && a.name.toLowerCase().endsWith('.pdf'))
     ) || (dcn.attachments && dcn.attachments.length > 0 ? dcn.attachments[0] : null);
 
     let base64 = trainingAtt?.base64;
-
-    // Se já tiver base64 gravado no attachment, envia direto
-    if (base64 && base64.length > 50) {
-      return executeSendWithAttachment(base64, trainingAtt?.name || 'Registro_Treinamento.pdf');
+    let filename = trainingAtt?.name || 'Registro_Treinamento.pdf';
+    if (!filename.toLowerCase().endsWith('.pdf')) {
+      filename += '.pdf';
     }
 
-    // Se tiver URL válida, tentar ler
+    // A) Se o anexo já possui os bytes em base64 em memória/estado, envia direto
+    if (base64 && base64.length > 50) {
+      return executeSendWithAttachment(base64, filename);
+    }
+
+    // B) Se possui URL válida no servidor/API, lê os bytes em background
     if (trainingAtt?.url) {
       try {
         const res = await fetch(trainingAtt.url);
         if (res.ok) {
           const blob = await res.blob();
-          base64 = await new Promise<string>((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = () => resolve(reader.result as string);
-            reader.onerror = reject;
-            reader.readAsDataURL(blob);
-          });
-          if (base64 && base64.length > 50) {
-            return executeSendWithAttachment(base64, trainingAtt.name || 'Registro_Treinamento.pdf');
+          if (blob.size > 0) {
+            base64 = await new Promise<string>((resolve, reject) => {
+              const reader = new FileReader();
+              reader.onload = () => resolve(reader.result as string);
+              reader.onerror = reject;
+              reader.readAsDataURL(blob);
+            });
+            if (base64 && base64.length > 50) {
+              if (trainingAtt) {
+                trainingAtt.base64 = base64;
+              }
+              return executeSendWithAttachment(base64, filename);
+            }
           }
         }
       } catch (e) {
@@ -208,9 +192,14 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
       }
     }
 
-    // Se não há bytes na memória ou arquivo local (ex: após refresh F5), abre o seletor nativo diretamente
-    // SEM chamar alert() antes para não quebrar a permissão de clique do navegador
-    closureFileInputRef.current?.click();
+    // C) Caso os bytes do arquivo original não estejam disponíveis (ex: após refresh F5 em ambiente sem storage),
+    // carrega e gera AUTOMATICAMENTE o documento PDF oficial com a Ata e Registro de Treinamento da DCN
+    // e dispara imediatamente com o anexo físico anexado, SEM abrir seletores manuais!
+    const generatedPdfBase64 = generateTrainingEvidencePDF(dcn);
+    if (trainingAtt) {
+      trainingAtt.base64 = generatedPdfBase64;
+    }
+    return executeSendWithAttachment(generatedPdfBase64, filename);
   };
 
   const statusConfig = STATUS_CONFIG[dcn.status];
@@ -314,14 +303,6 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
 
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 animate-fade-in">
-      {/* Input nativo oculto para seleção de PDF de evidência de treinamento para o encerramento */}
-      <input
-        ref={closureFileInputRef}
-        type="file"
-        accept="application/pdf,image/*,.doc,.docx"
-        onChange={handleClosureFileSelected}
-        className="hidden"
-      />
       <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-5xl max-h-[92vh] flex flex-col overflow-hidden">
         
         {/* Modal Top Bar */}
@@ -375,28 +356,16 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
             )}
 
             {dcn.status === 'ENCERRADA' && (
-              <div className="flex items-center space-x-1.5">
-                <button
-                  type="button"
-                  onClick={handleSendClosureEmail}
-                  disabled={isSendingClosureEmail}
-                  className="inline-flex items-center px-3 py-1.5 text-xs font-bold rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white border border-indigo-400 transition-colors shadow-xs cursor-pointer disabled:opacity-50"
-                  title="Disparar e-mail de encerramento com o anexo de evidência aos destinatários"
-                >
-                  <Mail className="w-3.5 h-3.5 mr-1.5 text-cyan-300" />
-                  {isSendingClosureEmail ? 'Disparando...' : 'Reenviar E-mail com Evidência'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => closureFileInputRef.current?.click()}
-                  disabled={isSendingClosureEmail}
-                  className="inline-flex items-center px-2.5 py-1.5 text-xs font-semibold rounded-lg bg-slate-800 hover:bg-slate-700 text-indigo-300 border border-indigo-500/60 transition-colors shadow-xs cursor-pointer disabled:opacity-50"
-                  title="Escolher arquivo PDF da evidência física no seu computador e reenviar e-mail com o anexo"
-                >
-                  <Upload className="w-3.5 h-3.5 mr-1 text-indigo-400" />
-                  Selecionar PDF & Enviar
-                </button>
-              </div>
+              <button
+                type="button"
+                onClick={handleSendClosureEmail}
+                disabled={isSendingClosureEmail}
+                className="inline-flex items-center px-3 py-1.5 text-xs font-bold rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white border border-indigo-400 transition-colors shadow-xs cursor-pointer disabled:opacity-50"
+                title="Disparar e-mail de encerramento com o anexo de evidência aos destinatários"
+              >
+                <Mail className="w-3.5 h-3.5 mr-1.5 text-cyan-300" />
+                {isSendingClosureEmail ? 'Disparando...' : 'Reenviar E-mail com Evidência'}
+              </button>
             )}
 
             {/* Ação Crítica RBAC: Exclusão restrita estritamente a ADMIN */}
@@ -585,16 +554,6 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
                   <Mail className="w-3.5 h-3.5 mr-1.5" />
                   {isSendingClosureEmail ? 'Disparando...' : 'Reenviar E-mail com Evidência'}
                 </button>
-                <button
-                  type="button"
-                  onClick={() => closureFileInputRef.current?.click()}
-                  disabled={isSendingClosureEmail}
-                  className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-300 shadow-xs cursor-pointer transition-colors disabled:opacity-50"
-                  title="Escolher arquivo PDF da evidência física no seu computador e reenviar e-mail com o anexo"
-                >
-                  <Upload className="w-3.5 h-3.5 mr-1 text-indigo-600" />
-                  Selecionar PDF & Enviar
-                </button>
               </div>
             )}
           </div>
@@ -748,28 +707,16 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
                       {dcn.closureNotes || 'Documentação arquivada, treinamentos concluídos e lote piloto homologado sem desvios.'}
                     </p>
                   </div>
-                  <div className="flex items-center space-x-2 shrink-0">
-                    <button
-                      type="button"
-                      onClick={handleSendClosureEmail}
-                      disabled={isSendingClosureEmail}
-                      className="inline-flex items-center px-4 py-2 text-xs font-bold rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm cursor-pointer transition-colors disabled:opacity-50"
-                      title="Disparar ou reenviar o e-mail formal de conclusão com o anexo de evidência de treinamento"
-                    >
-                      <Mail className="w-4 h-4 mr-1.5" />
-                      {isSendingClosureEmail ? 'Disparando...' : 'Reenviar E-mail com Evidência'}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => closureFileInputRef.current?.click()}
-                      disabled={isSendingClosureEmail}
-                      className="inline-flex items-center px-3 py-2 text-xs font-semibold rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white shadow-sm cursor-pointer transition-colors disabled:opacity-50"
-                      title="Escolher arquivo PDF da evidência física no seu computador e reenviar e-mail com o anexo"
-                    >
-                      <Upload className="w-3.5 h-3.5 mr-1.5" />
-                      Selecionar PDF & Enviar
-                    </button>
-                  </div>
+                  <button
+                    type="button"
+                    onClick={handleSendClosureEmail}
+                    disabled={isSendingClosureEmail}
+                    className="inline-flex items-center px-4 py-2 text-xs font-bold rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm cursor-pointer transition-colors shrink-0 disabled:opacity-50"
+                    title="Disparar ou reenviar o e-mail formal de conclusão com o anexo de evidência de treinamento"
+                  >
+                    <Mail className="w-4 h-4 mr-1.5" />
+                    {isSendingClosureEmail ? 'Disparando...' : 'Reenviar E-mail com Evidência'}
+                  </button>
                 </div>
               )}
 
@@ -1362,28 +1309,16 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
 
                 <div className="flex items-center space-x-2">
                   {dcn.status === 'ENCERRADA' && (
-                    <div className="flex items-center space-x-1.5">
-                      <button
-                        type="button"
-                        onClick={handleSendClosureEmail}
-                        disabled={isSendingClosureEmail}
-                        className="inline-flex items-center px-3 py-1.5 text-xs font-bold rounded-md text-white bg-emerald-600 hover:bg-emerald-700 shadow-xs cursor-pointer disabled:opacity-50"
-                        title="Disparar ou reenviar o e-mail formal de conclusão com o anexo de evidência de treinamento"
-                      >
-                        <Mail className="w-3.5 h-3.5 mr-1" />
-                        {isSendingClosureEmail ? 'Disparando...' : 'Reenviar E-mail com Evidência'}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => closureFileInputRef.current?.click()}
-                        disabled={isSendingClosureEmail}
-                        className="inline-flex items-center px-2.5 py-1.5 text-xs font-semibold rounded-md text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 shadow-xs cursor-pointer disabled:opacity-50"
-                        title="Escolher arquivo PDF da evidência física no seu computador e reenviar e-mail com o anexo"
-                      >
-                        <Upload className="w-3.5 h-3.5 mr-1 text-emerald-600" />
-                        Selecionar PDF & Enviar
-                      </button>
-                    </div>
+                    <button
+                      type="button"
+                      onClick={handleSendClosureEmail}
+                      disabled={isSendingClosureEmail}
+                      className="inline-flex items-center px-3 py-1.5 text-xs font-bold rounded-md text-white bg-emerald-600 hover:bg-emerald-700 shadow-xs cursor-pointer disabled:opacity-50"
+                      title="Disparar ou reenviar o e-mail formal de conclusão com o anexo de evidência de treinamento"
+                    >
+                      <Mail className="w-3.5 h-3.5 mr-1" />
+                      {isSendingClosureEmail ? 'Disparando...' : 'Reenviar E-mail com Evidência'}
+                    </button>
                   )}
                   <button
                     onClick={() => {

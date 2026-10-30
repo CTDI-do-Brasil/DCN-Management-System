@@ -27,6 +27,7 @@ import {
 } from '../src/utils/notificationTemplates';
 import { NotificationLogEntry, NotificationSettings } from '../src/types';
 import { sendSmtpEmail } from './smtpClient';
+import { generateTrainingEvidencePDF } from '../src/utils/pdfGenerator';
 
 dotenv.config();
 
@@ -1426,6 +1427,26 @@ async function sendDCNClosureNotification(
             console.warn('[DCN Encerramento] Erro ao ler uploads local:', diskErr.message);
           }
         }
+      }
+    }
+
+    // 1.1 Se após todas as tentativas não houver binário mas a DCN possui registro ou anexo de treinamento
+    if (!hasTrainingAttachment) {
+      try {
+        const generatedBase64 = generateTrainingEvidencePDF(fullDcn as any);
+        const buf = Buffer.from(generatedBase64, 'base64');
+        if (buf.length > 0) {
+          hasTrainingAttachment = true;
+          attachmentName = 'Registro_Treinamento.pdf';
+          attachmentsToSend.push({
+            filename: attachmentName,
+            content: buf,
+            contentType: 'application/pdf'
+          });
+          console.log(`[sendDCNClosureNotification] Anexo gerado automaticamente a partir dos dados da DCN: ${buf.length} bytes`);
+        }
+      } catch (genErr: any) {
+        console.warn('[sendDCNClosureNotification] Falha ao sintetizar PDF de treinamento:', genErr.message);
       }
     }
 
