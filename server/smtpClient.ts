@@ -215,9 +215,19 @@ export async function sendSmtpEmail(options: SendMailOptions): Promise<{ sent: b
           messagePayload = `${messageHeaders}\r\n${base64Html}\r\n`;
         }
 
-        const finalData = messagePayload.endsWith('\r\n') ? `${messagePayload}.\r\n` : `${messagePayload}\r\n.\r\n`;
-        await sendCmd(finalData, [250]);
-        await sendCmd('QUIT', [221, 250]);
+        const cleanPayload = messagePayload.endsWith('\r\n') ? messagePayload : `${messagePayload}\r\n`;
+        socket.write(`${cleanPayload}.\r\n`);
+        const dataResp = await waitResponse();
+        if (![250, 251].includes(dataResp.code)) {
+          throw new Error(`SMTP [DATA] falhou (${dataResp.code}): ${dataResp.text}`);
+        }
+
+        try {
+          socket.write('QUIT\r\n');
+          await waitResponse();
+        } catch {
+          // O e-mail já foi aceito para entrega pelo servidor SMTP (status 250 no DATA)
+        }
 
         clearTimeout(timeout);
         finish(
