@@ -1357,11 +1357,14 @@ app.delete('/api/notifications/logs', (_req: Request, res: Response) => {
 // ==========================================
 // Envio Automático de E-mail de Encerramento da DCN
 // ==========================================
+const lastClosureNotificationSent: Record<string, number> = {};
+
 async function sendDCNClosureNotification(
   dcnId: string,
   performedBy?: string,
   clientDcn?: any,
-  clientAttachment?: { base64: string; filename: string; contentType?: string }
+  clientAttachment?: { base64: string; filename: string; contentType?: string },
+  forceSend = false
 ): Promise<{ success: boolean; smtpSent?: boolean; detail?: string; error?: string }> {
   try {
     let fullDcn: any = null;
@@ -1387,6 +1390,13 @@ async function sendDCNClosureNotification(
     if (!fullDcn) {
       console.warn(`[sendDCNClosureNotification] DCN ${dcnId} não localizada no banco nem no payload.`);
       return { success: false, detail: 'DCN não encontrada' };
+    }
+
+    const dcnKey = fullDcn.dcnNumber || dcnId;
+    const now = Date.now();
+    if (!forceSend && lastClosureNotificationSent[dcnKey] && (now - lastClosureNotificationSent[dcnKey] < 8000)) {
+      console.log(`[sendDCNClosureNotification] Notificação de encerramento para ${dcnKey} já disparada há menos de 8s. Deduplicação aplicada.`);
+      return { success: true, smtpSent: true, detail: 'Notificação já processada recentemente para esta DCN.' };
     }
 
     let usersList: any[] = [];
@@ -1589,6 +1599,9 @@ async function sendDCNClosureNotification(
       });
       smtpSent = smtpRes.sent;
       detailMsg = smtpRes.detail;
+      if (smtpSent) {
+        lastClosureNotificationSent[dcnKey] = now;
+      }
       console.log(`[DCN Encerramento SMTP] ${detailMsg}`);
     } else {
       detailMsg = 'SMTP desabilitado nas configurações';
@@ -1635,7 +1648,7 @@ async function sendDCNClosureNotification(
 // Rota explícita para notificação de encerramento
 app.post('/api/dcns/:id/notify-closure', async (req: Request, res: Response) => {
   const { id } = req.params;
-  const { user, dcn, attachmentBase64, attachmentName, attachmentType, settings } = req.body || {};
+  const { user, dcn, attachmentBase64, attachmentName, attachmentType, settings, force } = req.body || {};
   if (settings) {
     notificationSettingsMemory = { ...notificationSettingsMemory, ...settings };
   }
@@ -1643,7 +1656,8 @@ app.post('/api/dcns/:id/notify-closure', async (req: Request, res: Response) => 
     id,
     user,
     dcn,
-    attachmentBase64 ? { base64: attachmentBase64, filename: attachmentName, contentType: attachmentType } : undefined
+    attachmentBase64 ? { base64: attachmentBase64, filename: attachmentName, contentType: attachmentType } : undefined,
+    force !== false
   );
   res.json(result);
 });
