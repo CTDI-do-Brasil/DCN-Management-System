@@ -63,6 +63,8 @@ export interface NotificationLogEntry {
   triggerMode: 'AUTOMATICO' | 'MANUAL';
   status: 'ENVIADO_SMTP' | 'REGISTRADO_SISTEMA' | 'SEM_PENDENCIAS';
   htmlPreview: string;
+  skipped?: boolean;
+  message?: string;
 }
 
 export type PriorityLevel = 'BAIXA' | 'MEDIA' | 'ALTA' | 'CRITICA';

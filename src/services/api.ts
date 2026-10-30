@@ -429,17 +429,30 @@ export const api = {
     try {
       const res = await fetch(`${API_BASE}/notifications/logs`);
       const logs = await handleResponse<NotificationLogEntry[]>(res);
-      localStorage.setItem(LOCAL_NOTIF_LOGS_KEY, JSON.stringify(logs));
-      return logs;
+      const validLogs = (Array.isArray(logs) ? logs : []).filter(l => l.dcnCount && l.dcnCount > 0);
+      localStorage.setItem(LOCAL_NOTIF_LOGS_KEY, JSON.stringify(validLogs));
+      return validLogs;
     } catch {
       try {
         const raw = localStorage.getItem(LOCAL_NOTIF_LOGS_KEY);
-        if (raw) return JSON.parse(raw);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          return (Array.isArray(parsed) ? parsed : []).filter(l => l.dcnCount && l.dcnCount > 0);
+        }
       } catch {
         // ignore
       }
       return [];
     }
+  },
+
+  async clearNotificationLogs(): Promise<void> {
+    try {
+      await fetch(`${API_BASE}/notifications/logs`, { method: 'DELETE' });
+    } catch {
+      // ignore
+    }
+    localStorage.removeItem(LOCAL_NOTIF_LOGS_KEY);
   },
 
   async triggerNotification(params: {
@@ -459,6 +472,16 @@ export const api = {
       params.targetResponsible
     );
 
+    // Se não houver DCNs elegíveis, nem envia e-mail e nem grava histórico vazio
+    if (!entry.dcnCount || entry.dcnCount === 0) {
+      return {
+        ...entry,
+        status: 'SEM_PENDENCIAS',
+        skipped: true,
+        message: 'Nenhum e-mail enviado pois não há DCNs elegíveis.'
+      };
+    }
+
     try {
       const res = await fetch(`${API_BASE}/notifications/trigger`, {
         method: 'POST',
@@ -466,15 +489,19 @@ export const api = {
         body: JSON.stringify({ entry, settings: params.settings })
       });
       const saved = await handleResponse<NotificationLogEntry>(res);
-      const currentLogs = await this.getNotificationLogs();
-      localStorage.setItem(LOCAL_NOTIF_LOGS_KEY, JSON.stringify([saved, ...currentLogs.filter(l => l.id !== saved.id)].slice(0, 100)));
+      if (saved && saved.dcnCount > 0 && !saved.skipped) {
+        const currentLogs = await this.getNotificationLogs();
+        localStorage.setItem(LOCAL_NOTIF_LOGS_KEY, JSON.stringify([saved, ...currentLogs.filter(l => l.id !== saved.id && l.dcnCount > 0)].slice(0, 100)));
+      }
       return saved;
     } catch {
       try {
-        const raw = localStorage.getItem(LOCAL_NOTIF_LOGS_KEY);
-        const existing: NotificationLogEntry[] = raw ? JSON.parse(raw) : [];
-        const updated = [entry, ...existing].slice(0, 100);
-        localStorage.setItem(LOCAL_NOTIF_LOGS_KEY, JSON.stringify(updated));
+        if (entry.dcnCount > 0) {
+          const raw = localStorage.getItem(LOCAL_NOTIF_LOGS_KEY);
+          const existing: NotificationLogEntry[] = raw ? JSON.parse(raw) : [];
+          const updated = [entry, ...existing.filter(l => l.dcnCount > 0)].slice(0, 100);
+          localStorage.setItem(LOCAL_NOTIF_LOGS_KEY, JSON.stringify(updated));
+        }
       } catch {
         // ignore
       }

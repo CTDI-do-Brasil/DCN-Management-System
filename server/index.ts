@@ -1253,7 +1253,13 @@ app.put('/api/notifications/settings', (req: Request, res: Response) => {
 });
 
 app.get('/api/notifications/logs', (_req: Request, res: Response) => {
+  notificationLogsMemory = notificationLogsMemory.filter(l => l.dcnCount && l.dcnCount > 0);
   res.json(notificationLogsMemory);
+});
+
+app.delete('/api/notifications/logs', (_req: Request, res: Response) => {
+  notificationLogsMemory = [];
+  res.json({ success: true, message: 'Histórico de notificações limpo com sucesso.' });
 });
 
 // ==========================================
@@ -1393,6 +1399,17 @@ app.post('/api/notifications/trigger', async (req: Request, res: Response) => {
     return res.status(400).json({ error: 'Dados da notificação não informados.' });
   }
 
+  // Se não houver DCNs elegíveis (dcnCount === 0), não envia e-mail e não salva no histórico de envios
+  if (!entry.dcnCount || entry.dcnCount === 0 || !entry.dcnNumbers || entry.dcnNumbers.length === 0) {
+    console.log(`[Notification Service] Disparo ignorado (${entry.triggerMode}): 0 DCNs associadas à regra ${entry.ruleType}.`);
+    return res.json({
+      ...entry,
+      status: 'SEM_PENDENCIAS',
+      skipped: true,
+      message: 'Nenhum e-mail enviado pois não há DCNs elegíveis (não encerradas ou com SLA vencido).'
+    });
+  }
+
   let smtpSent = false;
   if (notificationSettingsMemory.smtpEnabled && ((entry.recipients && entry.recipients.length > 0) || (entry.ccRecipients && entry.ccRecipients.length > 0))) {
     const result = await sendSmtpEmail({
@@ -1410,9 +1427,9 @@ app.post('/api/notifications/trigger', async (req: Request, res: Response) => {
     ...entry,
     status: smtpSent ? 'ENVIADO_SMTP' : entry.status
   };
-  notificationLogsMemory = [savedEntry, ...notificationLogsMemory].slice(0, 100);
+  notificationLogsMemory = [savedEntry, ...notificationLogsMemory.filter(l => l.dcnCount && l.dcnCount > 0)].slice(0, 100);
   console.log(
-    `[Notification Service] Disparo (${savedEntry.triggerMode}): "${savedEntry.subject}" -> [${savedEntry.recipients.join(', ')}]`
+    `[Notification Service] Disparo (${savedEntry.triggerMode}): "${savedEntry.subject}" -> [${savedEntry.recipients.join(', ')}] (${savedEntry.dcnCount} DCNs)`
   );
   res.json(savedEntry);
 });
@@ -1494,6 +1511,13 @@ setInterval(async () => {
         dcnsList = [];
       }
 
+      // Validação: não envia e-mail se não houver DCNs elegíveis (não encerradas / com SLA vencido)
+      const targetDCNs = filterDCNsForRule(dcnsList as any, ruleKey, notificationSettingsMemory);
+      if (!targetDCNs || targetDCNs.length === 0) {
+        console.log(`[Scheduler Recorrente] Regra ${ruleKey} verificada às ${currentHHMM}: 0 DCNs elegíveis (nenhuma DCN não encerrada ou com SLA vencido). Envio de e-mail dispensado.`);
+        return;
+      }
+
       const entry = createNotificationLogEntry(
         ruleKey,
         dcnsList as any,
@@ -1515,8 +1539,8 @@ setInterval(async () => {
           entry.status = 'ENVIADO_SMTP';
         }
       }
-      notificationLogsMemory = [entry, ...notificationLogsMemory].slice(0, 100);
-      console.log(`[Scheduler Recorrente] Executado ${ruleKey} às ${currentHHMM}: ${entry.subject}`);
+      notificationLogsMemory = [entry, ...notificationLogsMemory.filter(l => l.dcnCount && l.dcnCount > 0)].slice(0, 100);
+      console.log(`[Scheduler Recorrente] Executado ${ruleKey} às ${currentHHMM}: ${entry.subject} (${entry.dcnCount} DCNs)`);
     };
 
     if (

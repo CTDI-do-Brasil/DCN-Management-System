@@ -197,10 +197,50 @@ export const NotificationsView: React.FC<NotificationsViewProps> = () => {
     });
   };
 
+  // Apenas logs com DCNs associadas (> 0) são exibidos
+  const displayLogs = useMemo(() => {
+    return logs.filter(l => l.dcnCount && l.dcnCount > 0);
+  }, [logs]);
+
+  const handleClearLogs = async () => {
+    if (!window.confirm('Deseja realmente limpar o histórico de notificações disparadas?')) {
+      return;
+    }
+    try {
+      await api.clearNotificationLogs();
+      setLogs([]);
+      setFeedback({
+        type: 'success',
+        message: 'Histórico de notificações limpo com sucesso!'
+      });
+    } catch (err: any) {
+      setFeedback({
+        type: 'error',
+        message: 'Erro ao limpar histórico: ' + err.message
+      });
+    }
+  };
+
   const handleTriggerRule = async (ruleType: NotificationRuleType) => {
+    const targetResp = ruleType === 'RESPONSIBLE_ALERT' ? selectedResponsible : undefined;
+    const targetDCNs = filterDCNsForRule(dcns, ruleType, settings, targetResp);
+
+    if (targetDCNs.length === 0) {
+      const reasonMsg =
+        ruleType === 'DAILY_OVERDUE'
+          ? 'não há nenhuma DCN com SLA vencido'
+          : ruleType === 'SLA_APPROACHING'
+          ? `não há nenhuma DCN com SLA próximo de vencer (em até ${settings.slaThresholdDays || 5} dias)`
+          : 'não há nenhuma DCN não encerrada pendente';
+      setFeedback({
+        type: 'info',
+        message: `Envio cancelado: ${reasonMsg}. Nenhum e-mail foi disparado.`
+      });
+      return;
+    }
+
     setIsTriggering(ruleType);
     try {
-      const targetResp = ruleType === 'RESPONSIBLE_ALERT' ? selectedResponsible : undefined;
       const entry = await api.triggerNotification({
         ruleType,
         dcns,
@@ -209,11 +249,18 @@ export const NotificationsView: React.FC<NotificationsViewProps> = () => {
         triggerMode: 'MANUAL',
         targetResponsible: targetResp
       });
-      setLogs(prev => [entry, ...prev.filter(l => l.id !== entry.id)]);
-      setFeedback({
-        type: 'success',
-        message: `Notificação "${RULE_TYPE_LABELS[ruleType].title}" disparada para ${entry.recipients.length} destinatário(s)!`
-      });
+      if (!entry.skipped && entry.dcnCount > 0) {
+        setLogs(prev => [entry, ...prev.filter(l => l.id !== entry.id && l.dcnCount > 0)]);
+        setFeedback({
+          type: 'success',
+          message: `Notificação "${RULE_TYPE_LABELS[ruleType].title}" disparada para ${entry.recipients.length} destinatário(s) com ${entry.dcnCount} DCN(s)!`
+        });
+      } else {
+        setFeedback({
+          type: 'info',
+          message: entry.message || 'Nenhum e-mail enviado pois não há DCNs elegíveis.'
+        });
+      }
     } finally {
       setIsTriggering(null);
     }
@@ -228,8 +275,26 @@ export const NotificationsView: React.FC<NotificationsViewProps> = () => {
       if (settings.slaApproachingEnabled) activeRules.push('SLA_APPROACHING');
       if (settings.responsibleAlertEnabled) activeRules.push('RESPONSIBLE_ALERT');
 
+      const eligibleRules = activeRules.filter(r => {
+        const count = filterDCNsForRule(
+          dcns,
+          r,
+          settings,
+          r === 'RESPONSIBLE_ALERT' ? selectedResponsible : undefined
+        ).length;
+        return count > 0;
+      });
+
+      if (eligibleRules.length === 0) {
+        setFeedback({
+          type: 'info',
+          message: 'Nenhum e-mail enviado: não há DCNs não encerradas ou com SLA vencido nas rotinas ativas.'
+        });
+        return;
+      }
+
       const newEntries: NotificationLogEntry[] = [];
-      for (const r of activeRules) {
+      for (const r of eligibleRules) {
         const entry = await api.triggerNotification({
           ruleType: r,
           dcns,
@@ -238,12 +303,14 @@ export const NotificationsView: React.FC<NotificationsViewProps> = () => {
           triggerMode: 'MANUAL',
           targetResponsible: r === 'RESPONSIBLE_ALERT' ? selectedResponsible : undefined
         });
-        newEntries.push(entry);
+        if (!entry.skipped && entry.dcnCount > 0) {
+          newEntries.push(entry);
+        }
       }
-      setLogs(prev => [...newEntries, ...prev].slice(0, 100));
+      setLogs(prev => [...newEntries, ...prev.filter(l => l.dcnCount > 0)].slice(0, 100));
       setFeedback({
         type: 'success',
-        message: `${newEntries.length} rotina(s) de notificação executada(s) e registrada(s) no histórico!`
+        message: `${newEntries.length} rotina(s) com pendências executada(s) e enviada(s)!`
       });
     } finally {
       setIsTriggering(null);
@@ -1041,15 +1108,26 @@ export const NotificationsView: React.FC<NotificationsViewProps> = () => {
         <div className="p-4 sm:p-5 border-b border-slate-200 flex items-center justify-between">
           <div>
             <h3 className="text-sm font-bold text-slate-900">
-              Histórico de Notificações & E-mails Disparados ({logs.length})
+              Histórico de Notificações & E-mails Disparados ({displayLogs.length})
             </h3>
             <p className="text-xs text-slate-500">
               Registro auditável de todos os envios automáticos e manuais
             </p>
           </div>
+          {displayLogs.length > 0 && (
+            <button
+              type="button"
+              onClick={handleClearLogs}
+              className="inline-flex items-center px-3 py-1.5 rounded-lg text-xs font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 transition-colors cursor-pointer"
+              title="Limpar registros do histórico"
+            >
+              <Trash2 className="w-3.5 h-3.5 mr-1 text-rose-600" />
+              Limpar Histórico
+            </button>
+          )}
         </div>
 
-        {logs.length === 0 ? (
+        {displayLogs.length === 0 ? (
           <div className="p-10 text-center text-slate-400 text-xs">
             <Mail className="w-8 h-8 mx-auto mb-2 text-slate-300" />
             <p className="font-semibold text-slate-600">Nenhum disparo registrado ainda.</p>
@@ -1071,7 +1149,7 @@ export const NotificationsView: React.FC<NotificationsViewProps> = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {logs.map(log => (
+                {displayLogs.map(log => (
                   <tr key={log.id} className="hover:bg-slate-50/80">
                     <td className="py-3 px-4 font-mono text-[11px] text-slate-600 whitespace-nowrap">
                       {log.timestamp}
