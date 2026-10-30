@@ -685,7 +685,7 @@ export const DCNProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   };
 
   // Advance DCN Workflow
-  const advanceDCNStatus = (id: string, targetStatus?: DCNStatus, comment?: string) => {
+  const advanceDCNStatus = async (id: string, targetStatus?: DCNStatus, comment?: string): Promise<void> => {
     const targetDcn = dcns.find(d => d.id === id);
     if (!targetDcn) return;
 
@@ -731,80 +731,75 @@ export const DCNProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       }
     }
 
+    let nextStatus: DCNStatus = targetStatus || targetDcn.status;
+
+    if (!targetStatus) {
+      // Natural progression
+      switch (targetDcn.status) {
+        case 'RECEBIDA':
+          nextStatus = 'EM_AVALIACAO';
+          break;
+        case 'EM_AVALIACAO':
+          nextStatus = (targetDcn.needsMaterial || (targetDcn.materials && targetDcn.materials.length > 0)) ? 'AGUARDANDO_MATERIAL' : 'PRONTA_IMPLEMENTACAO';
+          break;
+        case 'AGUARDANDO_MATERIAL':
+          nextStatus = 'PRONTA_IMPLEMENTACAO';
+          break;
+        case 'PRONTA_IMPLEMENTACAO':
+          if (!targetDcn.training?.scheduledDate || !targetDcn.training.scheduledDate.trim()) {
+            return;
+          }
+          nextStatus = 'IMPLEMENTADA';
+          break;
+        case 'IMPLEMENTADA':
+          nextStatus = 'ENCERRADA';
+          break;
+        default:
+          nextStatus = targetDcn.status;
+      }
+    } else if (targetStatus === 'IMPLEMENTADA' && targetDcn.status === 'PRONTA_IMPLEMENTACAO') {
+      if (!targetDcn.training?.scheduledDate || !targetDcn.training.scheduledDate.trim()) {
+        return;
+      }
+    }
+
     const timestamp = new Date().toISOString().replace('T', ' ').slice(0, 16);
-    let appliedUpdates: Partial<DCN> | null = null;
-    let appliedComment = comment;
-    
+    const isClosing = nextStatus === 'ENCERRADA';
+
+    // Disparar confetes se for encerramento
+    if (isClosing) {
+      confetti({
+        particleCount: 80,
+        spread: 70,
+        origin: { y: 0.6 }
+      });
+    }
+
+    const actualComment = comment || `Etapa validada por ${currentEngineer.name} conforme procedimento de engenharia.`;
+
+    const auditEntry = {
+      id: `aud-${Date.now()}`,
+      timestamp,
+      user: currentEngineer.name,
+      userRole: 'Engenharia de Processos',
+      action: `Avanço de Etapa: ${targetDcn.status} ➔ ${nextStatus}`,
+      fromStatus: targetDcn.status,
+      toStatus: nextStatus,
+      comment: actualComment
+    };
+
+    const appliedUpdates: Partial<DCN> = {
+      status: nextStatus,
+      implementationDate: nextStatus === 'IMPLEMENTADA' && !targetDcn.implementationDate ? timestamp.split(' ')[0] : targetDcn.implementationDate,
+      implementedBy: nextStatus === 'IMPLEMENTADA' && !targetDcn.implementedBy ? currentEngineer.name : targetDcn.implementedBy,
+      closedAt: isClosing ? timestamp.split(' ')[0] : targetDcn.closedAt,
+      closedBy: isClosing ? currentEngineer.name : targetDcn.closedBy,
+      closureNotes: isClosing && comment ? comment : targetDcn.closureNotes
+    };
+
+    // 1. Atualizar imediatamente o estado no React
     setDcns(prev => prev.map(dcn => {
       if (dcn.id !== id) return dcn;
-
-      let nextStatus: DCNStatus = targetStatus || dcn.status;
-
-      if (!targetStatus) {
-        // Natural progression
-        switch (dcn.status) {
-          case 'RECEBIDA':
-            nextStatus = 'EM_AVALIACAO';
-            break;
-          case 'EM_AVALIACAO':
-            nextStatus = (dcn.needsMaterial || (dcn.materials && dcn.materials.length > 0)) ? 'AGUARDANDO_MATERIAL' : 'PRONTA_IMPLEMENTACAO';
-            break;
-          case 'AGUARDANDO_MATERIAL':
-            nextStatus = 'PRONTA_IMPLEMENTACAO';
-            break;
-          case 'PRONTA_IMPLEMENTACAO':
-            // Se o treinamento não estiver agendado, não permitir avançar para IMPLEMENTADA
-            if (!dcn.training?.scheduledDate || !dcn.training.scheduledDate.trim()) {
-              return dcn;
-            }
-            nextStatus = 'IMPLEMENTADA';
-            break;
-          case 'IMPLEMENTADA':
-            nextStatus = 'ENCERRADA';
-            break;
-          default:
-            nextStatus = dcn.status;
-        }
-      } else if (targetStatus === 'IMPLEMENTADA' && dcn.status === 'PRONTA_IMPLEMENTACAO') {
-        if (!dcn.training?.scheduledDate || !dcn.training.scheduledDate.trim()) {
-          return dcn;
-        }
-      }
-
-      // If completing/closing, shoot confetti
-      if (nextStatus === 'ENCERRADA') {
-        confetti({
-          particleCount: 80,
-          spread: 70,
-          origin: { y: 0.6 }
-        });
-      }
-
-      const actualComment = comment || `Etapa validada por ${currentEngineer.name} conforme procedimento de engenharia.`;
-      appliedComment = actualComment;
-
-      const auditEntry = {
-        id: `aud-${Date.now()}`,
-        timestamp,
-        user: currentEngineer.name,
-        userRole: 'Engenharia de Processos',
-        action: `Avanço de Etapa: ${dcn.status} ➔ ${nextStatus}`,
-        fromStatus: dcn.status,
-        toStatus: nextStatus,
-        comment: actualComment
-      };
-
-      const isClosing = nextStatus === 'ENCERRADA';
-
-      appliedUpdates = {
-        status: nextStatus,
-        implementationDate: nextStatus === 'IMPLEMENTADA' && !dcn.implementationDate ? timestamp.split(' ')[0] : dcn.implementationDate,
-        implementedBy: nextStatus === 'IMPLEMENTADA' && !dcn.implementedBy ? currentEngineer.name : dcn.implementedBy,
-        closedAt: isClosing ? timestamp.split(' ')[0] : dcn.closedAt,
-        closedBy: isClosing ? currentEngineer.name : dcn.closedBy,
-        closureNotes: isClosing && comment ? comment : dcn.closureNotes
-      };
-
       return {
         ...dcn,
         ...appliedUpdates,
@@ -812,52 +807,50 @@ export const DCNProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       };
     }));
 
-    if (appliedUpdates) {
-      api.updateDCN(
-        id,
-        appliedUpdates,
-        appliedComment,
-        currentEngineer.name,
-        'Engenharia de Processos'
-      ).catch(err => {
-        console.warn('[DCNContext] Falha ao persistir avanço no PostgreSQL:', err);
-      });
+    // 2. Persistir no backend
+    api.updateDCN(
+      id,
+      appliedUpdates,
+      actualComment,
+      currentEngineer.name,
+      'Engenharia de Processos'
+    ).catch(err => {
+      console.warn('[DCNContext] Falha ao persistir avanço no PostgreSQL:', err);
+    });
 
-      // Se a etapa avançou para ENCERRADA, acionar explicitamente a notificação de encerramento
-      if ((appliedUpdates as any).status === 'ENCERRADA') {
-        const targetDcnObj = dcns.find(d => d.id === id);
-        if (targetDcnObj) {
-          const closedDcn = { ...targetDcnObj, ...appliedUpdates };
-          const trainingAtt = (closedDcn.attachments || []).find(
-            a => a.category === 'REGISTRO_TREINAMENTO'
-          ) || (closedDcn.attachments || []).find(
-            a => a.type === 'PDF' || (a.name && a.name.toLowerCase().endsWith('.pdf'))
-          ) || (closedDcn.attachments && closedDcn.attachments.length > 0 ? closedDcn.attachments[0] : null);
-          const attPayload = trainingAtt?.base64
-            ? {
-                base64: trainingAtt.base64,
-                filename: trainingAtt.name,
-                contentType: trainingAtt.type === 'PDF' ? 'application/pdf' : undefined
-              }
-            : undefined;
+    // 3. Se a etapa avançou para ENCERRADA, acionar explicitamente a notificação de encerramento e exibir popup
+    if (isClosing) {
+      const closedDcn: DCN = { ...targetDcn, ...appliedUpdates };
+      const trainingAtt = (closedDcn.attachments || []).find(
+        a => a.category === 'REGISTRO_TREINAMENTO'
+      ) || (closedDcn.attachments || []).find(
+        a => a.type === 'PDF' || (a.name && a.name.toLowerCase().endsWith('.pdf'))
+      ) || (closedDcn.attachments && closedDcn.attachments.length > 0 ? closedDcn.attachments[0] : null);
 
-          api.notifyDCNClosure(
-            id,
-            currentEngineer.name,
-            closedDcn,
-            attPayload
-          ).then(result => {
-            const filename = attPayload?.filename || trainingAtt?.name || 'Registro de Treinamento';
-            if (result.smtpSent) {
-              window.alert(`✅ DCN Concluída & Encerrada com sucesso!\n\nE-mail de encerramento enviado para os destinatários com o anexo "${filename}"!\n\n${result.detail || ''}`);
-            } else if (result.success) {
-              window.alert(`ℹ️ DCN Concluída & Encerrada!\n\nNotificação de encerramento: ${result.detail || result.error || 'Registrado no sistema'}`);
-            }
-          }).catch(err => {
-            console.warn('[DCNContext] Falha ao enviar e-mail de encerramento:', err);
-            window.alert(`⚠️ DCN Encerrada, porém ocorreu uma falha no envio do e-mail: ${err.message}`);
-          });
+      const attPayload = trainingAtt?.base64
+        ? {
+            base64: trainingAtt.base64,
+            filename: trainingAtt.name,
+            contentType: trainingAtt.type === 'PDF' ? 'application/pdf' : undefined
+          }
+        : undefined;
+
+      try {
+        const result = await api.notifyDCNClosure(
+          id,
+          currentEngineer.name,
+          closedDcn,
+          attPayload
+        );
+        const filename = attPayload?.filename || trainingAtt?.name || 'Registro de Treinamento';
+        if (result.smtpSent) {
+          window.alert(`✅ DCN Concluída & Encerrada com sucesso!\n\nE-mail de encerramento enviado para os destinatários com o anexo "${filename}"!\n\n${result.detail || ''}`);
+        } else if (result.success) {
+          window.alert(`ℹ️ DCN Concluída & Encerrada!\n\nNotificação de encerramento: ${result.detail || result.error || 'Registrado no sistema'}`);
         }
+      } catch (err: any) {
+        console.warn('[DCNContext] Falha ao enviar e-mail de encerramento:', err);
+        window.alert(`⚠️ DCN Encerrada, porém ocorreu uma falha no envio do e-mail: ${err.message}`);
       }
     }
   };

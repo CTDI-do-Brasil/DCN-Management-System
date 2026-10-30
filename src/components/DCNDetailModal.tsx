@@ -119,6 +119,16 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
   };
 
   const [isSendingClosureEmail, setIsSendingClosureEmail] = useState(false);
+  const [isAdvancing, setIsAdvancing] = useState(false);
+
+  const handleAdvanceStatus = async () => {
+    setIsAdvancing(true);
+    try {
+      await advanceDCNStatus(dcn.id);
+    } finally {
+      setIsAdvancing(false);
+    }
+  };
 
   const executeSendWithAttachment = async (base64: string, filename: string) => {
     setIsSendingClosureEmail(true);
@@ -555,8 +565,8 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
                       </button>
                     )}
                     <button
-                      onClick={() => advanceDCNStatus(dcn.id)}
-                      disabled={isBlockedToAdvance}
+                      onClick={handleAdvanceStatus}
+                      disabled={isBlockedToAdvance || isAdvancing}
                       title={
                         isBlockedByMaterials
                           ? 'Todos os materiais precisam estar com status "Recebido em Estoque" para avançar de etapa'
@@ -569,12 +579,12 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
                           : 'Avançar para Próxima Etapa'
                       }
                       className={`px-4 py-1 text-xs font-bold rounded-md text-white shadow-sm transition-colors flex items-center ${
-                        isBlockedToAdvance
+                        isBlockedToAdvance || isAdvancing
                           ? 'bg-slate-400 cursor-not-allowed opacity-70'
                           : 'bg-indigo-600 hover:bg-indigo-700 cursor-pointer'
                       }`}
                     >
-                      <span>Avançar para Próxima Etapa</span>
+                      <span>{isAdvancing ? 'Avançando...' : 'Avançar para Próxima Etapa'}</span>
                       <ArrowRight className="w-4 h-4 ml-1.5" />
                     </button>
                   </div>
