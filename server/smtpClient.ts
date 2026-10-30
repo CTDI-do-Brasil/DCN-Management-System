@@ -2,12 +2,19 @@ import net from 'net';
 import tls from 'tls';
 import { NotificationSettings } from '../src/types';
 
+export interface EmailAttachment {
+  filename: string;
+  content: Buffer;
+  contentType?: string;
+}
+
 export interface SendMailOptions {
   settings: NotificationSettings;
   to: string[];
   cc?: string[];
   subject: string;
   html: string;
+  attachments?: EmailAttachment[];
 }
 
 function extractEmailAddress(raw: string): string {
@@ -16,7 +23,7 @@ function extractEmailAddress(raw: string): string {
 }
 
 export async function sendSmtpEmail(options: SendMailOptions): Promise<{ sent: boolean; detail: string }> {
-  const { settings, to, cc = [], subject, html } = options;
+  const { settings, to, cc = [], subject, html, attachments = [] } = options;
   const host = (process.env.SMTP_HOST || settings.smtpHost || 'mail.ctdibrasil.com.br').trim();
   const port = Number(process.env.SMTP_PORT || settings.smtpPort || 587);
   const user = (process.env.SMTP_USER || settings.smtpUser || '').trim();
@@ -138,44 +145,73 @@ export async function sendSmtpEmail(options: SendMailOptions): Promise<{ sent: b
         if (ccRecipients.length > 0) {
           headerLines.push(`Cc: ${ccRecipients.join(', ')}`);
         }
-        headerLines.push(
-          `Subject: ${encodedSubject}`,
-          `MIME-Version: 1.0`,
-          `Content-Type: text/html; charset=UTF-8`,
-          `Content-Transfer-Encoding: base64`,
-          `Date: ${new Date().toUTCString()}`,
-          ``
-        );
-        const messageHeaders = headerLines.join('\r\n');
+
+        const hasAttachments = attachments && attachments.length > 0;
+        let messagePayload = '';
 
         const fullHtmlDocument = html.includes('<html')
           ? html
           : `<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
-<html xmlns="http://www.w3.org/1999/xhtml" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" lang="pt-BR">
+<html xmlns="http://www.w3.org/1999/xhtml" lang="pt-BR">
 <head>
   <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <!--[if mso]>
-  <xml>
-    <o:OfficeDocumentSettings>
-      <o:AllowPNG/>
-      <o:PixelsPerInch>96</o:PixelsPerInch>
-    </o:OfficeDocumentSettings>
-  </xml>
-  <![endif]-->
 </head>
 <body style="margin: 0; padding: 0; background-color: #f1f5f9; font-family: 'Segoe UI', Tahoma, Arial, sans-serif;">
   ${html}
 </body>
 </html>`;
 
-        const base64Body =
+        const base64Html =
           Buffer.from(fullHtmlDocument, 'utf8')
             .toString('base64')
             .match(/.{1,76}/g)
             ?.join('\r\n') || '';
 
-        await sendCmd(`${messageHeaders}\r\n${base64Body}\r\n.`, [250]);
+        if (hasAttachments) {
+          const boundary = `----=_Part_${Date.now()}_${Math.random().toString(36).substring(2, 10)}`;
+          headerLines.push(
+            `Subject: ${encodedSubject}`,
+            `MIME-Version: 1.0`,
+            `Content-Type: multipart/mixed; boundary="${boundary}"`,
+            `Date: ${new Date().toUTCString()}`,
+            ``
+          );
+          const messageHeaders = headerLines.join('\r\n');
+
+          let mimeBody = `--${boundary}\r\n`;
+          mimeBody += `Content-Type: text/html; charset=UTF-8\r\n`;
+          mimeBody += `Content-Transfer-Encoding: base64\r\n\r\n`;
+          mimeBody += `${base64Html}\r\n`;
+
+          for (const att of attachments) {
+            const base64Att = att.content.toString('base64').match(/.{1,76}/g)?.join('\r\n') || '';
+            const mimeType = att.contentType || 'application/octet-stream';
+            const safeFilename = (att.filename || 'anexo').replace(/"/g, '');
+
+            mimeBody += `\r\n--${boundary}\r\n`;
+            mimeBody += `Content-Type: ${mimeType}; name="${safeFilename}"\r\n`;
+            mimeBody += `Content-Transfer-Encoding: base64\r\n`;
+            mimeBody += `Content-Disposition: attachment; filename="${safeFilename}"; filename*="UTF-8''${encodeURIComponent(safeFilename)}"\r\n\r\n`;
+            mimeBody += `${base64Att}\r\n`;
+          }
+
+          mimeBody += `\r\n--${boundary}--\r\n`;
+          messagePayload = `${messageHeaders}\r\n${mimeBody}`;
+        } else {
+          headerLines.push(
+            `Subject: ${encodedSubject}`,
+            `MIME-Version: 1.0`,
+            `Content-Type: text/html; charset=UTF-8`,
+            `Content-Transfer-Encoding: base64`,
+            `Date: ${new Date().toUTCString()}`,
+            ``
+          );
+          const messageHeaders = headerLines.join('\r\n');
+          messagePayload = `${messageHeaders}\r\n${base64Html}\r\n`;
+        }
+
+        await sendCmd(`${messagePayload}\r\n.`, [250]);
         await sendCmd('QUIT', [221, 250]);
 
         clearTimeout(timeout);
@@ -183,7 +219,7 @@ export async function sendSmtpEmail(options: SendMailOptions): Promise<{ sent: b
           true,
           `E-mail enviado via SMTP (${host}:${port}) para: ${toRecipients.join(', ')}${
             ccRecipients.length > 0 ? ` [Cc: ${ccRecipients.join(', ')}]` : ''
-          }`
+          }${hasAttachments ? ` [${attachments.length} anexo(s)]` : ''}`
         );
       } catch (err: any) {
         clearTimeout(timeout);

@@ -809,3 +809,215 @@ export function createNotificationLogEntry(
     htmlPreview: html
   };
 }
+
+/**
+ * Constrói o e-mail corporativo de encerramento formal de DCN
+ * Contém somente:
+ * - Código da DCN, Revisão e Família de Produtos
+ * - Título e Descrição da alteração
+ * - Área / Projeto e Engenheiro Responsável
+ * - Mensagem de finalização com aviso de anexo de treinamento (se houver)
+ * (Sem linha do tempo, sem parecer/notas e sem quadro de capacitação)
+ */
+export function buildDCNClosureEmailHTML(
+  dcn: DCN,
+  hasTrainingAttachment: boolean,
+  attachmentName?: string
+): { subject: string; html: string } {
+  const revText = dcn.revision ? ` (Rev. ${dcn.revision})` : '';
+  const subject = `[CTDI • DCN Encerrada] Notificação de Encerramento — ${dcn.dcnNumber}${revText}`;
+
+  const html = `
+    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #f1f5f9; padding: 25px 10px;">
+      <tr>
+        <td align="center">
+          <table width="640" cellpadding="0" cellspacing="0" border="0" style="max-width: 640px; width: 100%; background-color: #ffffff; border-radius: 12px; overflow: hidden; border: 1px solid #cbd5e1; box-shadow: 0 4px 12px rgba(0,0,0,0.06);">
+            
+            <!-- Header Corporativo -->
+            <tr>
+              <td style="background-color: #002a54; padding: 24px 30px; text-align: left;">
+                <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                  <tr>
+                    <td>
+                      <span style="font-family: 'Segoe UI', Tahoma, Arial, sans-serif; font-size: 11px; font-weight: 700; color: #38bdf8; letter-spacing: 1px; text-transform: uppercase;">
+                        COMUNICADO OFICIAL • DCN ENCERRADA
+                      </span>
+                      <h1 style="margin: 6px 0 0 0; font-family: 'Segoe UI', Tahoma, Arial, sans-serif; font-size: 20px; font-weight: 800; color: #ffffff; line-height: 1.3;">
+                        Encerramento de Document Change Notice (DCN)
+                      </h1>
+                      <p style="margin: 4px 0 0 0; font-family: 'Segoe UI', Tahoma, Arial, sans-serif; font-size: 13px; color: #94a3b8;">
+                        CTDI do Brasil • Engenharia de Processos & Qualidade
+                      </p>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+
+            <!-- Corpo da Mensagem -->
+            <tr>
+              <td style="padding: 26px 30px 20px 30px; font-family: 'Segoe UI', Tahoma, Arial, sans-serif; font-size: 14px; line-height: 1.6; color: #334155;">
+                <p style="margin: 0 0 16px 0;">
+                  Prezados(as),
+                </p>
+                <p style="margin: 0 0 20px 0;">
+                  Comunicamos que a <strong>${dcn.dcnNumber}${revText}</strong> foi oficialmente concluída e encerrada no sistema de gestão de engenharia da CTDI do Brasil.
+                </p>
+
+                <!-- Card de Dados da DCN -->
+                <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; margin-bottom: 20px;">
+                  <tr>
+                    <td style="padding: 16px 18px;">
+                      <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                        <tr>
+                          <td style="padding-bottom: 8px; font-family: 'Segoe UI', Tahoma, Arial, sans-serif; font-size: 12px; color: #64748b; width: 140px; font-weight: 700;">
+                            Código da DCN:
+                          </td>
+                          <td style="padding-bottom: 8px; font-family: 'Segoe UI', Tahoma, Arial, sans-serif; font-size: 13px; color: #002a54; font-weight: 800;">
+                            ${dcn.dcnNumber}
+                          </td>
+                        </tr>
+                        ${dcn.revision ? `
+                        <tr>
+                          <td style="padding-bottom: 8px; font-family: 'Segoe UI', Tahoma, Arial, sans-serif; font-size: 12px; color: #64748b; font-weight: 700;">
+                            Revisão:
+                          </td>
+                          <td style="padding-bottom: 8px; font-family: 'Segoe UI', Tahoma, Arial, sans-serif; font-size: 13px; color: #0f172a; font-weight: 700;">
+                            ${dcn.revision}
+                          </td>
+                        </tr>
+                        ` : ''}
+                        <tr>
+                          <td style="padding-bottom: 8px; font-family: 'Segoe UI', Tahoma, Arial, sans-serif; font-size: 12px; color: #64748b; font-weight: 700;">
+                            Família de Produtos:
+                          </td>
+                          <td style="padding-bottom: 8px; font-family: 'Segoe UI', Tahoma, Arial, sans-serif; font-size: 13px; color: #0f172a; font-weight: 600;">
+                            ${dcn.productFamily || 'Geral'}
+                          </td>
+                        </tr>
+                        <tr>
+                          <td style="padding-bottom: 8px; font-family: 'Segoe UI', Tahoma, Arial, sans-serif; font-size: 12px; color: #64748b; font-weight: 700;">
+                            Área / Projeto:
+                          </td>
+                          <td style="padding-bottom: 8px; font-family: 'Segoe UI', Tahoma, Arial, sans-serif; font-size: 13px; color: #0f172a; font-weight: 600;">
+                            ${dcn.area}
+                          </td>
+                        </tr>
+                        <tr>
+                          <td style="padding-bottom: 8px; font-family: 'Segoe UI', Tahoma, Arial, sans-serif; font-size: 12px; color: #64748b; font-weight: 700;">
+                            Eng. Responsável:
+                          </td>
+                          <td style="padding-bottom: 8px; font-family: 'Segoe UI', Tahoma, Arial, sans-serif; font-size: 13px; color: #0f172a; font-weight: 600;">
+                            ${dcn.responsible}
+                          </td>
+                        </tr>
+                        <tr>
+                          <td style="padding-bottom: 8px; font-family: 'Segoe UI', Tahoma, Arial, sans-serif; font-size: 12px; color: #64748b; font-weight: 700; vertical-align: top;">
+                            Título da DCN:
+                          </td>
+                          <td style="padding-bottom: 8px; font-family: 'Segoe UI', Tahoma, Arial, sans-serif; font-size: 13px; color: #0f172a; font-weight: 700;">
+                            ${dcn.title}
+                          </td>
+                        </tr>
+                        <tr>
+                          <td style="font-family: 'Segoe UI', Tahoma, Arial, sans-serif; font-size: 12px; color: #64748b; font-weight: 700; vertical-align: top;">
+                            Descrição da Mudança:
+                          </td>
+                          <td style="font-family: 'Segoe UI', Tahoma, Arial, sans-serif; font-size: 12px; color: #334155; line-height: 1.5;">
+                            ${dcn.description.replace(/\n/g, '<br/>')}
+                          </td>
+                        </tr>
+                      </table>
+                    </td>
+                  </tr>
+                </table>
+
+                <!-- Aviso de Anexo / Evidência -->
+                ${hasTrainingAttachment ? `
+                <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 14px 16px; margin-bottom: 20px;">
+                  <span style="font-size: 14px; font-weight: 700; color: #166534;">
+                    &#128206; Evidência de Treinamento em Anexo
+                  </span>
+                  <p style="margin: 6px 0 0 0; font-size: 12px; color: #15803d; line-height: 1.4;">
+                    Segue em anexo a este comunicado o documento oficial de registro de treinamento/capacitação (<strong>${attachmentName || 'Registro de Treinamento'}</strong>).
+                  </p>
+                </div>
+                ` : `
+                <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 16px; margin-bottom: 20px;">
+                  <p style="margin: 0; font-size: 12px; color: #475569;">
+                    Todas as etapas regulamentares foram homologadas e o fluxo de alteração de engenharia encontra-se encerrado.
+                  </p>
+                </div>
+                `}
+
+                <p style="margin: 20px 0 0 0; font-size: 13px; color: #475569;">
+                  Atenciosamente,<br />
+                  <strong style="color: #002a54;">Gestão de DCNs • CTDI do Brasil</strong>
+                </p>
+              </td>
+            </tr>
+
+            <!-- Rodapé -->
+            <tr>
+              <td style="background-color: #f8fafc; padding: 16px 30px; border-top: 1px solid #e2e8f0; text-align: center;">
+                <p style="margin: 0; font-family: 'Segoe UI', Tahoma, Arial, sans-serif; font-size: 11px; color: #94a3b8;">
+                  ISO 9001:2015 • Engenharia de Processos • Este é um comunicado automático gerado pelo sistema.
+                </p>
+              </td>
+            </tr>
+
+          </table>
+        </td>
+      </tr>
+    </table>
+  `;
+
+  return { subject, html };
+}
+
+/**
+ * Resolve a lista de destinatários principais (Para:) e cópia (Cc:)
+ * para a comunicação de encerramento da DCN:
+ * - Para: (To): Destinatários principais (directRecipients) + Engenheiro Responsável
+ * - Cc: (Cópia): Destinatários fixos de cópia (fixedRecipients)
+ */
+export function resolveClosureRecipients(
+  dcn: DCN,
+  users: User[],
+  settings: NotificationSettings
+): { to: string[]; cc: string[] } {
+  const toSet = new Set<string>();
+  const ccSet = new Set<string>();
+
+  // 1. Destinatários Principais cadastrados no card de Notificações
+  (settings.directRecipients || []).forEach(email => {
+    const clean = email.trim().toLowerCase();
+    if (clean) toSet.add(clean);
+  });
+
+  // 2. Engenheiro Responsável pela DCN
+  const resp = (dcn.responsible || '').trim().toLowerCase();
+  const matchedUser = users.find(
+    u => u.nome.trim().toLowerCase() === resp || u.login.trim().toLowerCase() === resp
+  );
+  if (matchedUser && matchedUser.email) {
+    toSet.add(matchedUser.email.trim().toLowerCase());
+  } else if (matchedUser && matchedUser.login) {
+    toSet.add(`${matchedUser.login.toLowerCase()}@ctdi.com`);
+  } else if (resp.includes('@')) {
+    toSet.add(resp);
+  }
+
+  // 3. Destinatários em Cópia (Cc) cadastrados no card de Notificações
+  (settings.fixedRecipients || []).forEach(email => {
+    const clean = email.trim().toLowerCase();
+    if (clean && !toSet.has(clean)) {
+      ccSet.add(clean);
+    }
+  });
+
+  return {
+    to: Array.from(toSet),
+    cc: Array.from(ccSet)
+  };
+}

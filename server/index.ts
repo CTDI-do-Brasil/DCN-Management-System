@@ -21,6 +21,8 @@ import {
   DEFAULT_NOTIFICATION_SETTINGS,
   createNotificationLogEntry,
   buildNotificationEmailHTML,
+  buildDCNClosureEmailHTML,
+  resolveClosureRecipients,
   filterDCNsForRule
 } from '../src/utils/notificationTemplates';
 import { NotificationLogEntry, NotificationSettings } from '../src/types';
@@ -749,6 +751,13 @@ app.put('/api/dcns/:id', async (req: Request, res: Response) => {
       });
     });
 
+    // Se a DCN foi encerrada nesta atualização, disparar automaticamente e-mail de encerramento
+    if (fields.status === 'ENCERRADA' && currentDCN.status !== 'ENCERRADA') {
+      sendDCNClosureNotification(id, user || currentDCN.closedBy || 'Engenharia CTDI').catch(err => {
+        console.warn('[DCN Closure] Falha ao enviar notificação de encerramento:', err);
+      });
+    }
+
     res.json(updated);
   } catch (error: any) {
     console.error('Error updating DCN:', error);
@@ -1055,8 +1064,22 @@ app.post('/api/dcns/:id/attachments', upload.single('file'), async (req: Request
     const sanitizedBase = path.basename(file.originalname, fileExt).replace(/[^a-zA-Z0-9_-]/g, '_');
     const objectKey = `dcns/${dcn.id}/${Date.now()}-${sanitizedBase}${fileExt}`;
 
-    // Upload do buffer para o bucket do MinIO
-    await uploadFileToMinio(objectKey, file.buffer, file.size, file.mimetype);
+    // Upload do buffer para o bucket do MinIO (com contingência em pasta local)
+    try {
+      await uploadFileToMinio(objectKey, file.buffer, file.size, file.mimetype);
+    } catch (minioErr) {
+      console.warn('[MinIO] Upload no MinIO indisponível, gravando em contingência local:', minioErr);
+    }
+
+    try {
+      const uploadsDir = path.join(process.cwd(), 'uploads');
+      if (!fs.existsSync(uploadsDir)) {
+        fs.mkdirSync(uploadsDir, { recursive: true });
+      }
+      fs.writeFileSync(path.join(uploadsDir, objectKey.replace(/\//g, '_')), file.buffer);
+    } catch (fsErr) {
+      console.warn('[Uploads FS] Falha ao gravar cópia local:', fsErr);
+    }
 
     // Salvar registro no banco de dados via Prisma
     const attachment = await prisma.dCNAttachment.create({
@@ -1098,6 +1121,32 @@ app.post('/api/dcns/:id/attachments', upload.single('file'), async (req: Request
   }
 });
 
+// Helper para obter Buffer de anexo (via MinIO ou contingência local)
+async function getAttachmentBuffer(objectKey: string): Promise<Buffer | null> {
+  try {
+    const stream = await getFileStreamFromMinio(objectKey);
+    const chunks: Buffer[] = [];
+    return await new Promise<Buffer>((resolve, reject) => {
+      stream.on('data', (chunk: any) => chunks.push(Buffer.from(chunk)));
+      stream.on('error', (err: any) => reject(err));
+      stream.on('end', () => resolve(Buffer.concat(chunks)));
+    });
+  } catch (minioErr) {
+    // MinIO indisponível ou erro no streaming
+  }
+
+  try {
+    const localPath = path.join(process.cwd(), 'uploads', objectKey.replace(/\//g, '_'));
+    if (fs.existsSync(localPath)) {
+      return fs.readFileSync(localPath);
+    }
+  } catch (fsErr) {
+    console.warn(`[Attachment Buffer] Erro ao ler arquivo local para ${objectKey}:`, fsErr);
+  }
+
+  return null;
+}
+
 // Streaming / Download de anexo armazenado no MinIO
 app.get('/api/attachments/:id/file', async (req: Request, res: Response) => {
   try {
@@ -1108,12 +1157,27 @@ app.get('/api/attachments/:id/file', async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'Arquivo do anexo não encontrado ou sem chave MinIO.' });
     }
 
-    const stat = await getFileStatFromMinio(attachment.objectKey);
-    const stream = await getFileStreamFromMinio(attachment.objectKey);
+    let stream: any = null;
+    let size = 0;
+    try {
+      const stat = await getFileStatFromMinio(attachment.objectKey);
+      stream = await getFileStreamFromMinio(attachment.objectKey);
+      size = stat.size;
+    } catch (minioErr) {
+      const localPath = path.join(process.cwd(), 'uploads', attachment.objectKey.replace(/\//g, '_'));
+      if (fs.existsSync(localPath)) {
+        const localStat = fs.statSync(localPath);
+        size = localStat.size;
+        stream = fs.createReadStream(localPath);
+      } else {
+        throw minioErr;
+      }
+    }
+
     const isDownload = req.query.download === 'true';
 
     res.setHeader('Content-Type', attachment.mimeType || 'application/octet-stream');
-    res.setHeader('Content-Length', stat.size);
+    res.setHeader('Content-Length', size);
     res.setHeader(
       'Content-Disposition',
       `${isDownload ? 'attachment' : 'inline'}; filename="${encodeURIComponent(attachment.name)}"`
@@ -1190,6 +1254,134 @@ app.put('/api/notifications/settings', (req: Request, res: Response) => {
 
 app.get('/api/notifications/logs', (_req: Request, res: Response) => {
   res.json(notificationLogsMemory);
+});
+
+// ==========================================
+// Envio Automático de E-mail de Encerramento da DCN
+// ==========================================
+async function sendDCNClosureNotification(
+  dcnId: string,
+  performedBy?: string
+): Promise<{ success: boolean; smtpSent?: boolean; detail?: string; error?: string }> {
+  try {
+    const fullDcn = await prisma.dCN.findUnique({
+      where: { id: dcnId },
+      include: {
+        materials: true,
+        training: { include: { attendeesList: true } },
+        implementationChecklist: true,
+        attachments: true,
+        auditTrail: { orderBy: { createdAt: 'desc' } }
+      }
+    });
+
+    if (!fullDcn) return { success: false, detail: 'DCN não encontrada' };
+
+    let usersList: any[] = [];
+    try {
+      usersList = await prisma.user.findMany();
+    } catch {
+      usersList = INITIAL_USERS;
+    }
+
+    // 1. Localizar arquivo oficial de treinamento anexado (categoria REGISTRO_TREINAMENTO)
+    const trainingAttachment = fullDcn.attachments?.find(
+      att => att.category === 'REGISTRO_TREINAMENTO'
+    );
+
+    const attachmentsToSend: { filename: string; content: Buffer; contentType?: string }[] = [];
+    let hasTrainingAttachment = false;
+    let attachmentName: string | undefined = undefined;
+
+    if (trainingAttachment && trainingAttachment.objectKey) {
+      const buffer = await getAttachmentBuffer(trainingAttachment.objectKey);
+      if (buffer) {
+        hasTrainingAttachment = true;
+        attachmentName = trainingAttachment.name;
+        attachmentsToSend.push({
+          filename: trainingAttachment.name,
+          content: buffer,
+          contentType: trainingAttachment.mimeType || 'application/pdf'
+        });
+      }
+    }
+
+    // 2. Destinatários: Para (diretos + responsável) e Cc (cópia fixa)
+    const { to, cc } = resolveClosureRecipients(fullDcn as any, usersList, notificationSettingsMemory);
+
+    if (to.length === 0 && cc.length === 0) {
+      console.log(`[DCN Encerramento] Sem destinatários configurados para ${fullDcn.dcnNumber}.`);
+      return { success: false, detail: 'Nenhum destinatário configurado' };
+    }
+
+    // 3. Montar corpo de e-mail corporativo simplificado
+    const { subject, html } = buildDCNClosureEmailHTML(
+      fullDcn as any,
+      hasTrainingAttachment,
+      attachmentName
+    );
+
+    // 4. Enviar via SMTP
+    let smtpSent = false;
+    let detailMsg = '';
+    if (notificationSettingsMemory.smtpEnabled) {
+      const smtpRes = await sendSmtpEmail({
+        settings: notificationSettingsMemory,
+        to,
+        cc,
+        subject,
+        html,
+        attachments: attachmentsToSend
+      });
+      smtpSent = smtpRes.sent;
+      detailMsg = smtpRes.detail;
+      console.log(`[DCN Encerramento SMTP] ${detailMsg}`);
+    } else {
+      detailMsg = 'SMTP desabilitado nas configurações';
+    }
+
+    // 5. Histórico de Notificações
+    const closureLog: NotificationLogEntry = {
+      id: `notif-closure-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      timestamp: new Date().toISOString().replace('T', ' ').slice(0, 16),
+      ruleType: 'WEEKLY_PENDING' as any,
+      title: `Encerramento de DCN (${fullDcn.dcnNumber})`,
+      subject,
+      recipients: to,
+      ccRecipients: cc,
+      dcnCount: 1,
+      dcnNumbers: [fullDcn.dcnNumber],
+      triggerMode: 'AUTOMATICO',
+      status: smtpSent ? 'ENVIADO_SMTP' : 'REGISTRADO_SISTEMA',
+      htmlPreview: html
+    };
+    notificationLogsMemory = [closureLog, ...notificationLogsMemory].slice(0, 100);
+
+    // 6. Trilha de Auditoria
+    await prisma.auditLogEntry.create({
+      data: {
+        dcnId: fullDcn.id,
+        timestamp: new Date().toISOString(),
+        user: performedBy || fullDcn.closedBy || 'Sistema',
+        userRole: 'Engenharia de Processos',
+        action: 'Notificação de Encerramento',
+        comment: `Comunicado de encerramento enviado por e-mail para: [${to.join(', ')}]${cc.length > 0 ? ` (Cc: [${cc.join(', ')}])` : ''}${hasTrainingAttachment ? ` com anexo de treinamento "${attachmentName}"` : ' (sem anexo de treinamento)'}. Status: ${smtpSent ? 'Enviado via SMTP' : 'Gravado no sistema'}.`
+      }
+    });
+
+    return { success: true, smtpSent, detail: detailMsg };
+  } catch (err: any) {
+    console.error('[sendDCNClosureNotification] Erro:', err);
+    return { success: false, error: err.message };
+  }
+}
+
+// Rota explícita para notificação de encerramento
+app.post('/api/dcns/:id/notify-closure', async (req: Request, res: Response) => {
+  const { id } = req.params;
+  const { user } = req.body || {};
+  const result = await sendDCNClosureNotification(id, user);
+  res.json(result);
 });
 
 app.post('/api/notifications/trigger', async (req: Request, res: Response) => {
