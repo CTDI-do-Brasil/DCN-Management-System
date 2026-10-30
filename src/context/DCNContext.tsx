@@ -846,8 +846,16 @@ export const DCNProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
             currentEngineer.name,
             closedDcn,
             attPayload
-          ).catch(err => {
+          ).then(result => {
+            const filename = attPayload?.filename || trainingAtt?.name || 'Registro de Treinamento';
+            if (result.smtpSent) {
+              window.alert(`✅ DCN Concluída & Encerrada com sucesso!\n\nE-mail de encerramento enviado para os destinatários com o anexo "${filename}"!\n\n${result.detail || ''}`);
+            } else if (result.success) {
+              window.alert(`ℹ️ DCN Concluída & Encerrada!\n\nNotificação de encerramento: ${result.detail || result.error || 'Registrado no sistema'}`);
+            }
+          }).catch(err => {
             console.warn('[DCNContext] Falha ao enviar e-mail de encerramento:', err);
+            window.alert(`⚠️ DCN Encerrada, porém ocorreu uma falha no envio do e-mail: ${err.message}`);
           });
         }
       }
