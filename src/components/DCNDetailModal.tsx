@@ -199,10 +199,24 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
         }
       }
 
-      // C) Caso os bytes do arquivo original não estejam disponíveis (ex: após refresh F5 em ambiente sem storage),
-      // carrega e gera AUTOMATICAMENTE o documento PDF oficial com a Ata e Registro de Treinamento da DCN
-      // e dispara imediatamente com o anexo físico anexado, SEM abrir seletores manuais!
-      console.log('[handleSendClosureEmail] Gerando PDF oficial de treinamento automaticamente a partir dos dados da DCN...');
+      // C) Se os bytes não estão na memória do navegador, solicita ao backend que utilize o arquivo original gravado em disco (uploads/) ou MinIO
+      console.log('[handleSendClosureEmail] Solicitando ao backend que utilize o anexo original salvo em disco/storage...');
+      try {
+        const srvRes = await api.notifyDCNClosure(dcn.id, currentEngineer.name, dcn);
+        if (srvRes.success) {
+          if (srvRes.smtpSent) {
+            alert(`✅ E-mail de encerramento enviado com sucesso para os destinatários com o anexo "${filename}"!\n\n${srvRes.detail || ''}`);
+          } else {
+            alert(`ℹ️ Notificação processada: ${srvRes.detail || srvRes.error || 'Registrado no sistema'}`);
+          }
+          return;
+        }
+      } catch (srvErr) {
+        console.warn('[handleSendClosureEmail] Tentativa direta no servidor falhou:', srvErr);
+      }
+
+      // D) Último recurso: gera PDF de treinamento a partir dos dados da DCN apenas se não houver arquivo real
+      console.log('[handleSendClosureEmail] Gerando PDF oficial de treinamento a partir dos dados da DCN...');
       const generatedPdfBase64 = generateTrainingEvidencePDF(dcn);
       if (trainingAtt) {
         trainingAtt.base64 = generatedPdfBase64;

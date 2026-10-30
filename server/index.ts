@@ -82,7 +82,8 @@ function addBusinessDays(startDateStr: string, daysToAdd: number): string {
 }
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 // Healthcheck
 app.get('/api/health', async (_req: Request, res: Response) => {
@@ -1145,6 +1146,16 @@ app.post('/api/dcns/:id/attachments', upload.single('file'), async (req: Request
   }
 });
 
+function getUploadCandidateDirs(): string[] {
+  const candidates = [
+    path.join(process.cwd(), 'uploads'),
+    path.join(__dirname, '..', 'uploads'),
+    path.join(__dirname, 'uploads'),
+    'C:\\Users\\jmiranda\\Downloads\\DCN-Management-System-main\\DCN-Management-System-main\\uploads'
+  ];
+  return Array.from(new Set(candidates.filter(dir => fs.existsSync(dir))));
+}
+
 // Helper para obter Buffer de anexo (via MinIO ou contingência local)
 async function getAttachmentBuffer(objectKey: string): Promise<Buffer | null> {
   try {
@@ -1159,13 +1170,16 @@ async function getAttachmentBuffer(objectKey: string): Promise<Buffer | null> {
     // MinIO indisponível ou erro no streaming
   }
 
-  try {
-    const localPath = path.join(process.cwd(), 'uploads', objectKey.replace(/\//g, '_'));
-    if (fs.existsSync(localPath)) {
-      return fs.readFileSync(localPath);
+  const sanitizedKey = objectKey.replace(/\//g, '_');
+  for (const dir of getUploadCandidateDirs()) {
+    try {
+      const localPath = path.join(dir, sanitizedKey);
+      if (fs.existsSync(localPath)) {
+        return fs.readFileSync(localPath);
+      }
+    } catch (fsErr) {
+      console.warn(`[Attachment Buffer] Erro ao ler arquivo local para ${objectKey}:`, fsErr);
     }
-  } catch (fsErr) {
-    console.warn(`[Attachment Buffer] Erro ao ler arquivo local para ${objectKey}:`, fsErr);
   }
 
   return null;
@@ -1177,21 +1191,22 @@ app.get('/api/attachments/:id/file', async (req: Request, res: Response) => {
     const { id } = req.params;
 
     // 1. Verificar contingência direta no diretório local uploads/
-    try {
-      const uploadsDir = path.join(process.cwd(), 'uploads');
-      const directLocal = path.join(uploadsDir, id);
-      if (fs.existsSync(directLocal)) {
-        const stat = fs.statSync(directLocal);
-        const isDownload = req.query.download === 'true';
-        res.setHeader('Content-Type', id.endsWith('.pdf') ? 'application/pdf' : 'application/octet-stream');
-        res.setHeader('Content-Length', stat.size);
-        res.setHeader(
-          'Content-Disposition',
-          `${isDownload ? 'attachment' : 'inline'}; filename="${encodeURIComponent(id)}"`
-        );
-        return fs.createReadStream(directLocal).pipe(res);
-      }
-    } catch {}
+    for (const uploadsDir of getUploadCandidateDirs()) {
+      try {
+        const directLocal = path.join(uploadsDir, id);
+        if (fs.existsSync(directLocal)) {
+          const stat = fs.statSync(directLocal);
+          const isDownload = req.query.download === 'true';
+          res.setHeader('Content-Type', id.endsWith('.pdf') ? 'application/pdf' : 'application/octet-stream');
+          res.setHeader('Content-Length', stat.size);
+          res.setHeader(
+            'Content-Disposition',
+            `${isDownload ? 'attachment' : 'inline'}; filename="${encodeURIComponent(id)}"`
+          );
+          return fs.createReadStream(directLocal).pipe(res);
+        }
+      } catch {}
+    }
 
     let attachment: any = null;
     try {
@@ -1424,11 +1439,10 @@ async function sendDCNClosureNotification(
           }
         }
 
-        // 3. Fallback: buscar na pasta uploads/ por nome de arquivo ou ID da DCN
+        // 3. Fallback: buscar nas pastas uploads/ por nome de arquivo ou ID da DCN
         if (!hasTrainingAttachment) {
-          try {
-            const uploadsDir = path.join(process.cwd(), 'uploads');
-            if (fs.existsSync(uploadsDir)) {
+          for (const uploadsDir of getUploadCandidateDirs()) {
+            try {
               const files = fs.readdirSync(uploadsDir);
               const cleanTarget = (trainingAttachment.name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
               const match = files.find(f => {
@@ -1444,11 +1458,49 @@ async function sendDCNClosureNotification(
                   contentType: trainingAttachment.mimeType || 'application/pdf'
                 });
                 console.log(`[sendDCNClosureNotification] Anexo recuperado da pasta uploads/ (${match}): ${buf.length} bytes`);
+                break;
               }
+            } catch (diskErr: any) {
+              console.warn('[DCN Encerramento] Erro ao ler uploads local:', diskErr.message);
             }
-          } catch (diskErr: any) {
-            console.warn('[DCN Encerramento] Erro ao ler uploads local:', diskErr.message);
           }
+        }
+      }
+    }
+
+    // C) Se ainda não encontrou, verificar nas pastas uploads/ qualquer arquivo desta DCN ou de treinamento
+    if (!hasTrainingAttachment) {
+      for (const uploadsDir of getUploadCandidateDirs()) {
+        try {
+          const files = fs.readdirSync(uploadsDir);
+          const dcnKey = dcnId ? dcnId.toLowerCase() : '';
+          const dcnNum = fullDcn.dcnNumber ? fullDcn.dcnNumber.toLowerCase().replace(/[^a-z0-9]/g, '') : '';
+          const match = files.reverse().find(f => {
+            const cleanF = f.toLowerCase();
+            return (
+              (dcnKey && cleanF.includes(dcnKey)) ||
+              (dcnNum && cleanF.replace(/[^a-z0-9]/g, '').includes(dcnNum)) ||
+              cleanF.includes('training') ||
+              cleanF.includes('treinamento')
+            ) && cleanF.endsWith('.pdf');
+          });
+
+          if (match) {
+            const buf = fs.readFileSync(path.join(uploadsDir, match));
+            hasTrainingAttachment = true;
+            const parts = match.split('_');
+            const originalName = parts.length > 2 ? parts.slice(2).join('_') : match;
+            attachmentName = originalName || 'Registro_Treinamento.pdf';
+            attachmentsToSend.push({
+              filename: attachmentName,
+              content: buf,
+              contentType: 'application/pdf'
+            });
+            console.log(`[sendDCNClosureNotification] Anexo original recuperado de uploads/ (${match}): ${buf.length} bytes`);
+            break;
+          }
+        } catch (e: any) {
+          console.warn('[sendDCNClosureNotification] Erro ao buscar em uploads:', e.message);
         }
       }
     }

@@ -55,13 +55,21 @@ async function handleResponse<T>(res: Response): Promise<T> {
   if (!res.ok) {
     let errorMessage = `API Error [${res.status}]`;
     try {
-      const errData = await res.json();
-      if (errData?.error) {
-        errorMessage = errData.error;
+      const text = await res.text();
+      try {
+        const errData = JSON.parse(text);
+        if (errData?.error) {
+          errorMessage = errData.error;
+        } else if (errData?.message) {
+          errorMessage = errData.message;
+        }
+      } catch {
+        if (text && text.trim()) {
+          errorMessage = text.length > 200 ? `${errorMessage}: ${text.slice(0, 200)}...` : text;
+        }
       }
     } catch {
-      const errorText = await res.text();
-      if (errorText) errorMessage = errorText;
+      // ignore
     }
     throw new Error(errorMessage);
   }
