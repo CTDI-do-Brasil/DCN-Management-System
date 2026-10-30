@@ -322,6 +322,19 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
               </button>
             )}
 
+            {dcn.status === 'ENCERRADA' && (
+              <button
+                type="button"
+                onClick={handleSendClosureEmail}
+                disabled={isSendingClosureEmail}
+                className="inline-flex items-center px-3 py-1.5 text-xs font-bold rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white border border-indigo-400 transition-colors shadow-xs cursor-pointer disabled:opacity-50"
+                title="Disparar e-mail de encerramento com o anexo de evidência aos destinatários"
+              >
+                <Mail className="w-3.5 h-3.5 mr-1.5 text-cyan-300" />
+                {isSendingClosureEmail ? 'Disparando...' : 'Reenviar E-mail com Evidência'}
+              </button>
+            )}
+
             {/* Ação Crítica RBAC: Exclusão restrita estritamente a ADMIN */}
             {canDeleteDCN && (
               <button
@@ -651,14 +664,26 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
 
               {/* Informações de Encerramento (quando aplicável) */}
               {dcn.status === 'ENCERRADA' && (
-                <div className="bg-emerald-50 p-4 rounded-xl border border-emerald-200">
-                  <div className="flex items-center space-x-2 text-emerald-900 font-bold text-sm">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                    <span>DCN Encerrada em {formatDate(dcn.closedAt)} por {dcn.closedBy}</span>
+                <div className="bg-emerald-50 p-4 rounded-xl border border-emerald-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+                  <div>
+                    <div className="flex items-center space-x-2 text-emerald-900 font-bold text-sm">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                      <span>DCN Encerrada em {formatDate(dcn.closedAt)} por {dcn.closedBy}</span>
+                    </div>
+                    <p className="text-xs text-emerald-800 mt-1">
+                      {dcn.closureNotes || 'Documentação arquivada, treinamentos concluídos e lote piloto homologado sem desvios.'}
+                    </p>
                   </div>
-                  <p className="text-xs text-emerald-800 mt-1">
-                    {dcn.closureNotes || 'Documentação arquivada, treinamentos concluídos e lote piloto homologado sem desvios.'}
-                  </p>
+                  <button
+                    type="button"
+                    onClick={handleSendClosureEmail}
+                    disabled={isSendingClosureEmail}
+                    className="inline-flex items-center px-4 py-2 text-xs font-bold rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm cursor-pointer transition-colors shrink-0 disabled:opacity-50"
+                    title="Disparar ou reenviar o e-mail formal de conclusão com o anexo de evidência de treinamento"
+                  >
+                    <Mail className="w-4 h-4 mr-1.5" />
+                    {isSendingClosureEmail ? 'Disparando...' : 'Reenviar E-mail com Evidência'}
+                  </button>
                 </div>
               )}
 
@@ -1249,18 +1274,32 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
                   </p>
                 </div>
 
-                <button
-                  onClick={() => {
-                    if (!showAddAttachment && dcn.status === 'IMPLEMENTADA' && !hasTrainingPdf) {
-                      setFileCategory('REGISTRO_TREINAMENTO');
-                    }
-                    setShowAddAttachment(!showAddAttachment);
-                  }}
-                  className="inline-flex items-center px-3 py-1.5 text-xs font-semibold rounded-md text-white bg-indigo-600 hover:bg-indigo-700 shadow-xs"
-                >
-                  <Upload className="w-3.5 h-3.5 mr-1" />
-                  {showAddAttachment ? 'Fechar Formulário' : 'Novo Arquivo / Upload'}
-                </button>
+                <div className="flex items-center space-x-2">
+                  {dcn.status === 'ENCERRADA' && (
+                    <button
+                      type="button"
+                      onClick={handleSendClosureEmail}
+                      disabled={isSendingClosureEmail}
+                      className="inline-flex items-center px-3 py-1.5 text-xs font-bold rounded-md text-white bg-emerald-600 hover:bg-emerald-700 shadow-xs cursor-pointer disabled:opacity-50"
+                      title="Disparar ou reenviar o e-mail formal de conclusão com o anexo de evidência de treinamento"
+                    >
+                      <Mail className="w-3.5 h-3.5 mr-1" />
+                      {isSendingClosureEmail ? 'Disparando...' : 'Reenviar E-mail com Evidência'}
+                    </button>
+                  )}
+                  <button
+                    onClick={() => {
+                      if (!showAddAttachment && dcn.status === 'IMPLEMENTADA' && !hasTrainingPdf) {
+                        setFileCategory('REGISTRO_TREINAMENTO');
+                      }
+                      setShowAddAttachment(!showAddAttachment);
+                    }}
+                    className="inline-flex items-center px-3 py-1.5 text-xs font-semibold rounded-md text-white bg-indigo-600 hover:bg-indigo-700 shadow-xs"
+                  >
+                    <Upload className="w-3.5 h-3.5 mr-1" />
+                    {showAddAttachment ? 'Fechar Formulário' : 'Novo Arquivo / Upload'}
+                  </button>
+                </div>
               </div>
 
               {/* Form Adicionar Anexo (MinIO) */}
