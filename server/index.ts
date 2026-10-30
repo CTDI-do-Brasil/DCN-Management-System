@@ -692,6 +692,50 @@ app.put('/api/dcns/:id', async (req: Request, res: Response) => {
         }
       }
 
+      // Sync materials if provided in update payload
+      if (Array.isArray(fields.materials)) {
+        await tx.materialItem.deleteMany({ where: { dcnId: id } });
+        if (fields.materials.length > 0) {
+          await tx.materialItem.createMany({
+            data: fields.materials.map((m: any) => ({
+              dcnId: id,
+              code: m.code || '',
+              description: m.description || '',
+              quantity: Number(m.quantity) || 1,
+              unit: m.unit || 'UN',
+              supplier: m.supplier || '',
+              expectedDate: m.expectedDate || '',
+              arrivalDate: m.arrivalDate || null,
+              status: m.status || 'PENDENTE',
+              notes: m.notes || null
+            }))
+          });
+        }
+      }
+
+      // Sync training if provided in update payload
+      if (fields.training && typeof fields.training === 'object') {
+        const scheduledDateVal = fields.training.scheduledDate || null;
+        await tx.trainingRecord.upsert({
+          where: { dcnId: id },
+          update: {
+            instructor: fields.training.instructor || fields.responsible || currentDCN.responsible,
+            targetAudience: fields.training.targetAudience || 'Líderes e Técnicos',
+            department: fields.training.department || fields.area || currentDCN.area,
+            scheduledDate: scheduledDateVal,
+            status: scheduledDateVal ? 'AGENDADO' : 'PENDENTE'
+          },
+          create: {
+            dcnId: id,
+            instructor: fields.training.instructor || fields.responsible || currentDCN.responsible,
+            targetAudience: fields.training.targetAudience || 'Líderes e Técnicos',
+            department: fields.training.department || fields.area || currentDCN.area,
+            scheduledDate: scheduledDateVal,
+            status: scheduledDateVal ? 'AGENDADO' : 'PENDENTE'
+          }
+        });
+      }
+
       return tx.dCN.update({
         where: { id },
         data: updateData,

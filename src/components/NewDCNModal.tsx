@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { 
   X, 
   PlusCircle, 
@@ -16,10 +16,11 @@ import {
   Video,
   FileCode,
   HardDrive,
-  Loader2
+  Loader2,
+  Edit3
 } from 'lucide-react';
 import { useDCN } from '../context/DCNContext';
-import { DCNStatus, PriorityLevel, DCNAttachment, MaterialItem } from '../types';
+import { DCN, DCNStatus, PriorityLevel, DCNAttachment, MaterialItem } from '../types';
 
 interface FormMaterialItem {
   id: string;
@@ -78,40 +79,90 @@ function formatFileSize(bytes: number): string {
 interface NewDCNModalProps {
   onClose: () => void;
   onSuccess: (dcnId: string) => void;
+  editingDCN?: DCN;
 }
 
-export const NewDCNModal: React.FC<NewDCNModalProps> = ({ onClose, onSuccess }) => {
-  const { createDCN, uploadAttachmentFile, currentEngineer } = useDCN();
+export const NewDCNModal: React.FC<NewDCNModalProps> = ({ onClose, onSuccess, editingDCN }) => {
+  const { createDCN, updateDCN, uploadAttachmentFile, currentEngineer } = useDCN();
+  const isEditMode = Boolean(editingDCN);
 
   const todayStr = new Date().toISOString().split('T')[0];
   const defaultDueDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
   // Required Fields
-  const [dcnNumber, setDcnNumber] = useState('');
-  const [revision, setRevision] = useState('');
-  const [productFamily, setProductFamily] = useState('');
-  const [title, setTitle] = useState('');
-  const [description, setDescription] = useState('');
-  const [area, setArea] = useState('EVM');
-  const [responsible, setResponsible] = useState(currentEngineer.name);
-  const [receivedDate, setReceivedDate] = useState(todayStr);
-  const [dueDate, setDueDate] = useState(defaultDueDate);
-  const [status, setStatus] = useState<DCNStatus>('RECEBIDA');
-  const [priority, setPriority] = useState<PriorityLevel>('ALTA');
+  const [dcnNumber, setDcnNumber] = useState(editingDCN?.dcnNumber || '');
+  const [revision, setRevision] = useState(editingDCN?.revision || '');
+  const [productFamily, setProductFamily] = useState(editingDCN?.productFamily || '');
+  const [title, setTitle] = useState(editingDCN?.title || '');
+  const [description, setDescription] = useState(editingDCN?.description || '');
+  const [area, setArea] = useState(editingDCN?.area || 'EVM');
+  const [responsible, setResponsible] = useState(editingDCN?.responsible || currentEngineer.name);
+  const [receivedDate, setReceivedDate] = useState(editingDCN?.receivedDate || todayStr);
+  const [dueDate, setDueDate] = useState(editingDCN?.dueDate || defaultDueDate);
+  const [status, setStatus] = useState<DCNStatus>(editingDCN?.status || 'RECEBIDA');
+  const [priority, setPriority] = useState<PriorityLevel>(editingDCN?.priority || 'ALTA');
 
   // Requirements Toggles & Materials List
-  const [needsMaterial, setNeedsMaterial] = useState(false);
-  const [materialsList, setMaterialsList] = useState<FormMaterialItem[]>([
-    {
-      id: 'mat-1',
-      code: '',
-      description: '',
-      expectedDate: '',
-      quantity: 1,
-      unit: 'UN',
-      supplier: ''
+  const [needsMaterial, setNeedsMaterial] = useState(editingDCN?.needsMaterial || false);
+  const [materialsList, setMaterialsList] = useState<FormMaterialItem[]>(() => {
+    if (editingDCN?.materials && editingDCN.materials.length > 0) {
+      return editingDCN.materials.map(m => ({
+        id: m.id,
+        code: m.code,
+        description: m.description,
+        expectedDate: m.expectedDate || '',
+        quantity: m.quantity || 1,
+        unit: m.unit || 'UN',
+        supplier: m.supplier || ''
+      }));
     }
-  ]);
+    return [
+      {
+        id: 'mat-1',
+        code: '',
+        description: '',
+        expectedDate: '',
+        quantity: 1,
+        unit: 'UN',
+        supplier: ''
+      }
+    ];
+  });
+
+  const [needsTraining, setNeedsTraining] = useState(editingDCN?.needsTraining || false);
+  const [trainingScheduledDate, setTrainingScheduledDate] = useState(editingDCN?.training?.scheduledDate || '');
+  const [trainingAudience, setTrainingAudience] = useState(editingDCN?.training?.targetAudience || 'Líderes, Técnicos de Reparo e Inspetores de CQ.');
+
+  useEffect(() => {
+    if (editingDCN) {
+      setDcnNumber(editingDCN.dcnNumber || '');
+      setRevision(editingDCN.revision || '');
+      setProductFamily(editingDCN.productFamily || '');
+      setTitle(editingDCN.title || '');
+      setDescription(editingDCN.description || '');
+      setArea(editingDCN.area || 'EVM');
+      setResponsible(editingDCN.responsible || currentEngineer.name);
+      setReceivedDate(editingDCN.receivedDate || todayStr);
+      setDueDate(editingDCN.dueDate || defaultDueDate);
+      setStatus(editingDCN.status || 'RECEBIDA');
+      setPriority(editingDCN.priority || 'ALTA');
+      setNeedsMaterial(editingDCN.needsMaterial || false);
+      if (editingDCN.materials && editingDCN.materials.length > 0) {
+        setMaterialsList(editingDCN.materials.map(m => ({
+          id: m.id,
+          code: m.code,
+          description: m.description,
+          expectedDate: m.expectedDate || '',
+          quantity: m.quantity || 1,
+          unit: m.unit || 'UN',
+          supplier: m.supplier || ''
+        })));
+      }
+      setNeedsTraining(editingDCN.needsTraining || false);
+      setTrainingScheduledDate(editingDCN.training?.scheduledDate || '');
+      setTrainingAudience(editingDCN.training?.targetAudience || 'Líderes, Técnicos de Reparo e Inspetores de CQ.');
+    }
+  }, [editingDCN]);
 
   const handleAddMaterialRow = () => {
     setMaterialsList(prev => [
@@ -153,9 +204,6 @@ export const NewDCNModal: React.FC<NewDCNModalProps> = ({ onClose, onSuccess }) 
     }
   };
 
-  const [needsTraining, setNeedsTraining] = useState(false);
-  const [trainingScheduledDate, setTrainingScheduledDate] = useState('');
-  const [trainingAudience, setTrainingAudience] = useState('Líderes, Técnicos de Reparo e Inspetores de CQ.');
 
   // Attachments State & MinIO Upload Queue
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -221,6 +269,82 @@ export const NewDCNModal: React.FC<NewDCNModalProps> = ({ onClose, onSuccess }) 
     setSubmitError(null);
 
     try {
+      if (isEditMode && editingDCN) {
+        setSubmitProgress('Atualizando DCN no banco de dados...');
+        const updatedFields: Partial<DCN> = {
+          dcnNumber,
+          revision: revision.trim() || undefined,
+          productFamily: productFamily.trim() || undefined,
+          title,
+          description,
+          area,
+          responsible,
+          receivedDate,
+          dueDate,
+          status,
+          priority,
+          needsMaterial,
+          materials: needsMaterial
+            ? materialsList
+                .filter(m => m.code.trim().length > 0 || m.description.trim().length > 0)
+                .map((m, idx) => {
+                  const existing = editingDCN.materials?.find(em => em.id === m.id || em.code === m.code);
+                  return {
+                    id: existing?.id || m.id || `mat-${Date.now()}-${idx}`,
+                    code: m.code.trim() || `ITEM-${idx + 1}`,
+                    description: m.description.trim() || 'Item requisitado para alteração de processo',
+                    quantity: Number(m.quantity) || 1,
+                    unit: m.unit || 'UN',
+                    supplier: m.supplier.trim() || '',
+                    expectedDate: m.expectedDate || '',
+                    arrivalDate: existing?.arrivalDate || null,
+                    status: existing?.status || 'PEDIDO_EMITIDO'
+                  };
+                })
+            : [],
+          needsTraining,
+          training: needsTraining
+            ? {
+                id: editingDCN.training?.id || `trn-${Date.now()}`,
+                instructor: responsible,
+                targetAudience: trainingAudience,
+                department: area,
+                estimatedHours: editingDCN.training?.estimatedHours || 30,
+                scheduledDate: trainingScheduledDate || undefined,
+                completionDate: editingDCN.training?.completionDate,
+                totalPlanned: editingDCN.training?.totalPlanned || 12,
+                totalTrained: editingDCN.training?.totalTrained || 0,
+                status: trainingScheduledDate
+                  ? (editingDCN.training?.completionDate ? 'CONCLUIDO' : 'AGENDADO')
+                  : (editingDCN.training?.status || 'PENDENTE'),
+                trainingTopics: editingDCN.training?.trainingTopics || [
+                  'Instrução de Trabalho revisada',
+                  'Parâmetros técnicos e tolerâncias de qualidade'
+                ],
+                attendeesList: editingDCN.training?.attendeesList || []
+              }
+            : undefined
+        };
+
+        await updateDCN(editingDCN.id, updatedFields, `Edição formal dos dados da DCN ${dcnNumber}.`);
+
+        // Enviar novos anexos adicionados durante a edição
+        if (pendingFiles.length > 0) {
+          for (let i = 0; i < pendingFiles.length; i++) {
+            const item = pendingFiles[i];
+            setSubmitProgress(`Enviando "${item.name}" (${i + 1}/${pendingFiles.length}) para o MinIO...`);
+            try {
+              await uploadAttachmentFile(editingDCN.id, item.file, item.category);
+            } catch (uploadErr) {
+              console.error(`Erro ao enviar anexo ${item.name} para o MinIO:`, uploadErr);
+            }
+          }
+        }
+
+        onSuccess(editingDCN.id);
+        return;
+      }
+
       const materials: MaterialItem[] = needsMaterial
         ? materialsList
             .filter(m => m.code.trim().length > 0 || m.description.trim().length > 0)
@@ -290,25 +414,36 @@ export const NewDCNModal: React.FC<NewDCNModalProps> = ({ onClose, onSuccess }) 
 
       onSuccess(newDCN.id);
     } catch (err: any) {
-      console.error('Erro ao cadastrar DCN:', err);
-      setSubmitError(err.message || 'Falha ao cadastrar a DCN. Tente novamente.');
+      console.error(isEditMode ? 'Erro ao atualizar DCN:' : 'Erro ao cadastrar DCN:', err);
+      setSubmitError(err.message || (isEditMode ? 'Falha ao atualizar a DCN. Tente novamente.' : 'Falha ao cadastrar a DCN. Tente novamente.'));
       setIsSubmitting(false);
     }
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 animate-fade-in">
+    <div className="fixed inset-0 z-[60] overflow-y-auto bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 animate-fade-in">
       <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-3xl overflow-hidden flex flex-col max-h-[92vh]">
         
         {/* Header */}
         <div className="p-4 sm:p-5 bg-slate-900 text-white flex items-center justify-between">
           <div className="flex items-center space-x-2.5">
             <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center text-white">
-              <PlusCircle className="w-5 h-5" />
+              {isEditMode ? <Edit3 className="w-5 h-5" /> : <PlusCircle className="w-5 h-5" />}
             </div>
             <div>
-              <h2 className="text-base font-bold text-white">Cadastrar Nova DCN</h2>
-              <p className="text-xs text-slate-300">Entrada formal no fluxo de controle de alterações de engenharia</p>
+              <div className="flex items-center space-x-2">
+                <h2 className="text-base font-bold text-white">
+                  {isEditMode ? `Editar DCN — ${editingDCN?.dcnNumber || 'DCN'}` : 'Cadastrar Nova DCN'}
+                </h2>
+                {isEditMode && (
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-400/30">
+                    Modo Edição
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-slate-300">
+                {isEditMode ? 'Atualização dos parâmetros cadastrais e escopo de implementação' : 'Entrada formal no fluxo de controle de alterações de engenharia'}
+              </p>
             </div>
           </div>
 
@@ -678,6 +813,27 @@ export const NewDCNModal: React.FC<NewDCNModalProps> = ({ onClose, onSuccess }) 
               </div>
             </div>
 
+            {/* Anexos já vinculados à DCN (Modo Edição) */}
+            {isEditMode && editingDCN?.attachments && editingDCN.attachments.length > 0 && (
+              <div className="space-y-1.5 p-3 rounded-xl bg-slate-50 border border-slate-200">
+                <span className="text-[11px] font-bold text-slate-700">
+                  Anexos Já Cadastrados ({editingDCN.attachments.length}):
+                </span>
+                <div className="flex flex-wrap gap-2 pt-1">
+                  {editingDCN.attachments.map(att => (
+                    <span
+                      key={att.id}
+                      className="inline-flex items-center px-2.5 py-1 rounded-lg text-xs bg-white border border-slate-200 text-slate-700 shadow-2xs"
+                      title={att.name}
+                    >
+                      <Paperclip className="w-3 h-3 mr-1.5 text-indigo-500" />
+                      <span className="max-w-[200px] truncate">{att.name}</span>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* Lista de Arquivos Selecionados */}
             {pendingFiles.length > 0 && (
               <div className="space-y-2">
@@ -786,6 +942,11 @@ export const NewDCNModal: React.FC<NewDCNModalProps> = ({ onClose, onSuccess }) 
                   <>
                     <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />
                     Processando...
+                  </>
+                ) : isEditMode ? (
+                  <>
+                    <CheckCircle className="w-4 h-4 mr-1.5" />
+                    Salvar Alterações
                   </>
                 ) : (
                   <>

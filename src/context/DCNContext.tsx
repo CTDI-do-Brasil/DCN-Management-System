@@ -47,7 +47,7 @@ interface DCNContextType {
 
   // Actions
   createDCN: (newDCN: Omit<DCN, 'id' | 'auditTrail'>) => Promise<DCN>;
-  updateDCN: (id: string, updatedFields: Partial<DCN>, auditComment?: string) => void;
+  updateDCN: (id: string, updatedFields: Partial<DCN>, auditComment?: string) => Promise<void>;
   deleteDCN: (id: string) => void;
   advanceDCNStatus: (id: string, targetStatus?: DCNStatus, comment?: string) => void;
   revertDCNStatus: (id: string, targetStatus: DCNStatus, reason: string) => void;
@@ -622,8 +622,9 @@ export const DCNProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   };
 
   // Update DCN
-  const updateDCN = (id: string, updatedFields: Partial<DCN>, auditComment?: string) => {
+  const updateDCN = async (id: string, updatedFields: Partial<DCN>, auditComment?: string) => {
     const timestamp = new Date().toISOString().replace('T', ' ').slice(0, 16);
+    let updatedMergedDCN: DCN | null = null;
     setDcns(prev => prev.map(dcn => {
       if (dcn.id !== id) return dcn;
 
@@ -639,25 +640,35 @@ export const DCNProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           action: 'Mudança de Versão / Revisão',
           comment: auditComment || `Revisão/Identificação atualizada de "${dcn.dcnNumber}" para "${updatedFields.dcnNumber}".`
         });
-      } else if (auditComment) {
+      } else {
         newAuditTrail.push({
           id: `aud-${Date.now()}`,
           timestamp,
           user: currentEngineer.name,
           userRole: 'Engenharia',
-          action: 'Atualização de Registro',
-          comment: auditComment
+          action: 'Edição de DCN',
+          comment: auditComment || 'Dados cadastrais da DCN atualizados via formulário.'
         });
       }
 
-      return {
+      const merged: DCN = {
         ...dcn,
         ...updatedFields,
         auditTrail: newAuditTrail
       };
+      updatedMergedDCN = merged;
+      return merged;
     }));
 
-    api.updateDCN(id, updatedFields, auditComment, currentEngineer.name, currentEngineer.role).catch(() => {});
+    if (updatedMergedDCN) {
+      setSelectedDCN(prev => (prev?.id === id ? updatedMergedDCN : prev));
+    }
+
+    try {
+      await api.updateDCN(id, updatedFields, auditComment || 'Dados cadastrais da DCN atualizados via formulário.', currentEngineer.name, currentEngineer.role);
+    } catch (err) {
+      console.warn('[DCNContext] Falha ao persistir updateDCN no servidor:', err);
+    }
   };
 
   // Delete DCN

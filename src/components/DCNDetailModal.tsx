@@ -31,13 +31,15 @@ import {
   Search,
   Video,
   Eye,
-  Loader2
+  Loader2,
+  Edit3
 } from 'lucide-react';
 import { useDCN } from '../context/DCNContext';
 import { useAuth } from '../context/AuthContext';
 import { DCN, DCNStatus, MaterialItem, MaterialStatus, DCNAttachment } from '../types';
 import { STATUS_CONFIG, PRIORITY_CONFIG, MATERIAL_STATUS_CONFIG, formatDate, isOverdue, getDaysRemaining, isWaitingMaterials } from '../utils/helpers';
 import { api } from '../services/api';
+import { NewDCNModal } from './NewDCNModal';
 
 interface DCNDetailModalProps {
   dcn: DCN;
@@ -71,6 +73,7 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
 
 
   const [activeTab, setActiveTab] = useState<'geral' | 'materiais' | 'treinamento' | 'implementacao' | 'anexos' | 'auditoria'>('geral');
+  const [isEditing, setIsEditing] = useState(false);
   const [newMaterialCode, setNewMaterialCode] = useState('');
   const [newMaterialDesc, setNewMaterialDesc] = useState('');
   const [newMaterialExpectedDate, setNewMaterialExpectedDate] = useState('');
@@ -252,6 +255,17 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
               >
                 <Printer className="w-3.5 h-3.5 mr-1.5 text-indigo-400" />
                 Imprimir Dossiê
+              </button>
+            )}
+
+            {canEditDCN && (
+              <button
+                onClick={() => setIsEditing(true)}
+                className="inline-flex items-center px-3 py-1.5 text-xs font-semibold rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-colors shadow-xs cursor-pointer"
+                title="Editar DCN"
+              >
+                <Edit3 className="w-3.5 h-3.5 mr-1.5 text-amber-400" />
+                Editar DCN
               </button>
             )}
 
@@ -1611,6 +1625,15 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
             </div>
           </div>
         </div>
+      )}
+
+      {/* Modal de Edição de DCN */}
+      {isEditing && (
+        <NewDCNModal
+          editingDCN={dcn}
+          onClose={() => setIsEditing(false)}
+          onSuccess={() => setIsEditing(false)}
+        />
       )}
 
     </div>
