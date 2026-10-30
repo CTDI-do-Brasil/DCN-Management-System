@@ -34,6 +34,7 @@ interface DCNContextType {
   filteredDCNs: DCN[];
   stats: DCNStats;
   currentEngineer: { name: string; role: string; email: string };
+  isPostgresMode: boolean;
   
   // Technicians Management
   technicians: Technician[];
@@ -49,8 +50,8 @@ interface DCNContextType {
   createDCN: (newDCN: Omit<DCN, 'id' | 'auditTrail'>) => Promise<DCN>;
   updateDCN: (id: string, updatedFields: Partial<DCN>, auditComment?: string) => Promise<void>;
   deleteDCN: (id: string) => void;
-  advanceDCNStatus: (id: string, targetStatus?: DCNStatus, comment?: string) => void;
-  revertDCNStatus: (id: string, targetStatus: DCNStatus, reason: string) => void;
+  advanceDCNStatus: (id: string, targetStatus?: DCNStatus, comment?: string) => Promise<void>;
+  revertDCNStatus: (id: string, targetStatus: DCNStatus, reason: string) => Promise<void>;
   
   // Material actions
   updateMaterialStatus: (dcnId: string, materialId: string, newStatus: MaterialItem['status']) => void;
@@ -94,7 +95,12 @@ const defaultFilters: FilterOptions = {
 const DCNContext = createContext<DCNContextType | undefined>(undefined);
 
 export const DCNProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
+  const [isPostgresMode, setIsPostgresMode] = useState<boolean>(Boolean(import.meta.env.PROD));
+
   const [dcns, setDcns] = useState<DCN[]>(() => {
+    if (import.meta.env.PROD) {
+      return INITIAL_DCNS;
+    }
     try {
       localStorage.removeItem(LEGACY_STORAGE_KEY);
       const saved = localStorage.getItem(STORAGE_KEY);
@@ -115,6 +121,9 @@ export const DCNProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   });
 
   const [technicians, setTechnicians] = useState<Technician[]>(() => {
+    if (import.meta.env.PROD) {
+      return INITIAL_TECHNICIANS;
+    }
     try {
       localStorage.removeItem(LEGACY_TECHNICIANS_STORAGE_KEY);
       const savedTechs = localStorage.getItem(TECHNICIANS_STORAGE_KEY);
@@ -139,7 +148,6 @@ export const DCNProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     return INITIAL_TECHNICIANS;
   });
 
-
   const [selectedDCN, setSelectedDCN] = useState<DCN | null>(null);
   const [filters, setFilters] = useState<FilterOptions>(defaultFilters);
 
@@ -153,13 +161,27 @@ export const DCNProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     email: currentUser ? `${currentUser.login.toLowerCase()}@ctdi.com` : 'jonatas.miranda@ctdi.com'
   }), [currentUser]);
 
-
   useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(dcns));
-    } catch (err) {
-      console.warn('[DCNContext] Limite de quota do localStorage atingido ao salvar DCNs:', err);
+    // Em modo de produção / PostgreSQL, NUNCA grava informações de DCNs no localStorage
+    if (!isPostgresMode) {
+      try {
+        // Sanitizar removendo base64 pesado de anexos para não estourar a quota de 5MB do localStorage
+        const sanitizedDcns = dcns.map(dcn => ({
+          ...dcn,
+          attachments: (dcn.attachments || []).map(att => {
+            if (att.base64) {
+              const { base64, ...rest } = att;
+              return rest;
+            }
+            return att;
+          })
+        }));
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(sanitizedDcns));
+      } catch (err) {
+        console.warn('[DCNContext] Limite de quota do localStorage atingido ao salvar DCNs:', err);
+      }
     }
+
     if (selectedDCN) {
       const updatedSelected = dcns.find(d => d.id === selectedDCN.id);
       if (updatedSelected) {
@@ -168,64 +190,113 @@ export const DCNProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         setSelectedDCN(null);
       }
     }
-  }, [dcns]);
+  }, [dcns, isPostgresMode]);
 
   useEffect(() => {
-    localStorage.setItem(TECHNICIANS_STORAGE_KEY, JSON.stringify(technicians));
-  }, [technicians]);
+    // Em modo de produção / PostgreSQL, NUNCA grava técnicos no localStorage
+    if (!isPostgresMode) {
+      try {
+        localStorage.setItem(TECHNICIANS_STORAGE_KEY, JSON.stringify(technicians));
+      } catch {}
+    }
+  }, [technicians, isPostgresMode]);
 
   // Carregar dados atualizados do banco PostgreSQL via API ao iniciar
   useEffect(() => {
     let isMounted = true;
     async function loadDataFromDatabase() {
       try {
+        const health = await api.checkHealth().catch(() => null);
+        const isPostgres = health?.storageMode === 'POSTGRESQL' || Boolean(import.meta.env.PROD);
+
+        if (isMounted) {
+          setIsPostgresMode(isPostgres);
+          if (isPostgres) {
+            try {
+              localStorage.removeItem(STORAGE_KEY);
+              localStorage.removeItem(TECHNICIANS_STORAGE_KEY);
+              localStorage.removeItem(LEGACY_STORAGE_KEY);
+              localStorage.removeItem(LEGACY_TECHNICIANS_STORAGE_KEY);
+            } catch {}
+          }
+        }
+
         const [remoteDCNs, remoteTechs] = await Promise.all([
           api.getDCNs(),
           api.getTechnicians()
         ]);
+
         if (isMounted) {
           if (Array.isArray(remoteDCNs)) {
             const cleanDCNs = remoteDCNs.filter(
               d => !LEGACY_DEMO_DCN_IDS.includes(d.id) && !LEGACY_DEMO_DCN_NUMBERS.includes(d.dcnNumber)
             );
-            if (cleanDCNs.length > 0) {
+
+            if (isPostgres) {
+              // Em produção (deploy no ar), o estado do React espelha estritamente o PostgreSQL
               setDcns(cleanDCNs);
             } else {
-              // Se o servidor retornou 0 DCNs (ex: banco novo ou recém reiniciado), preserva DCNs locais legítimas
-              // e sincroniza com o backend para evitar perda de dados
-              setDcns(currentLocalDcns => {
-                const validLocal = currentLocalDcns.filter(
-                  d => !LEGACY_DEMO_DCN_NUMBERS.includes(d.dcnNumber)
-                );
-                if (validLocal.length > 0) {
-                  validLocal.forEach(d => {
-                    api.createDCN(d as any).catch(err => console.warn('[DCNContext] Sincronização offline-to-server falhou:', err));
+              // Em modo local offline, preserva attachments em memória e sincroniza se local estiver vazio
+              if (cleanDCNs.length > 0) {
+                setDcns(currentLocalDcns => {
+                  return cleanDCNs.map(remote => {
+                    const local = currentLocalDcns.find(l => l.id === remote.id);
+                    if (!local) return remote;
+                    const mergedAttachments = (remote.attachments || []).map(rAtt => {
+                      const localAtt = (local.attachments || []).find(lAtt => lAtt.id === rAtt.id || lAtt.name === rAtt.name);
+                      if (localAtt && localAtt.base64 && !rAtt.base64) {
+                        return { ...rAtt, base64: localAtt.base64 };
+                      }
+                      return rAtt;
+                    });
+                    return {
+                      ...remote,
+                      attachments: mergedAttachments
+                    };
                   });
-                  return validLocal;
-                }
-                return [];
-              });
+                });
+              } else {
+                setDcns(currentLocalDcns => {
+                  const validLocal = currentLocalDcns.filter(
+                    d => !LEGACY_DEMO_DCN_NUMBERS.includes(d.dcnNumber)
+                  );
+                  if (validLocal.length > 0) {
+                    validLocal.forEach(d => {
+                      api.createDCN(d as any).catch(err => console.warn('[DCNContext] Sincronização offline-to-server falhou:', err));
+                    });
+                    return validLocal;
+                  }
+                  return [];
+                });
+              }
             }
           }
+
           if (Array.isArray(remoteTechs)) {
             const cleanTechs = remoteTechs.filter(
               t => !LEGACY_DEMO_TECH_IDS.includes(t.id) && !LEGACY_DEMO_TECH_BADGES.includes(t.badge || '')
             );
-            if (cleanTechs.length > 0) {
+
+            if (isPostgres) {
+              // Em produção com PostgreSQL, reflete estritamente o banco
               setTechnicians(cleanTechs);
             } else {
-              setTechnicians(currentLocalTechs => {
-                const validLocal = currentLocalTechs.filter(
-                  t => !LEGACY_DEMO_TECH_IDS.includes(t.id) && !LEGACY_DEMO_TECH_BADGES.includes(t.badge || '')
-                );
-                if (validLocal.length > 0) {
-                  validLocal.forEach(t => {
-                    api.createTechnician(t as any).catch(() => {});
-                  });
-                  return validLocal;
-                }
-                return [];
-              });
+              if (cleanTechs.length > 0) {
+                setTechnicians(cleanTechs);
+              } else {
+                setTechnicians(currentLocalTechs => {
+                  const validLocal = currentLocalTechs.filter(
+                    t => !LEGACY_DEMO_TECH_IDS.includes(t.id) && !LEGACY_DEMO_TECH_BADGES.includes(t.badge || '')
+                  );
+                  if (validLocal.length > 0) {
+                    validLocal.forEach(t => {
+                      api.createTechnician(t as any).catch(() => {});
+                    });
+                    return validLocal;
+                  }
+                  return [];
+                });
+              }
             }
           }
         }
@@ -797,26 +868,31 @@ export const DCNProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       closureNotes: isClosing && comment ? comment : targetDcn.closureNotes
     };
 
-    // 1. Atualizar imediatamente o estado no React
+    const updatedTarget: DCN = {
+      ...targetDcn,
+      ...appliedUpdates,
+      auditTrail: [...targetDcn.auditTrail, auditEntry]
+    };
+
+    // 1. Atualizar imediatamente o estado no React e o modal selecionado
     setDcns(prev => prev.map(dcn => {
       if (dcn.id !== id) return dcn;
-      return {
-        ...dcn,
-        ...appliedUpdates,
-        auditTrail: [...dcn.auditTrail, auditEntry]
-      };
+      return updatedTarget;
     }));
+    setSelectedDCN(prev => (prev?.id === id ? updatedTarget : prev));
 
     // 2. Persistir no backend
-    api.updateDCN(
-      id,
-      appliedUpdates,
-      actualComment,
-      currentEngineer.name,
-      'Engenharia de Processos'
-    ).catch(err => {
-      console.warn('[DCNContext] Falha ao persistir avanço no PostgreSQL:', err);
-    });
+    try {
+      await api.updateDCN(
+        id,
+        appliedUpdates,
+        actualComment,
+        currentEngineer.name,
+        'Engenharia de Processos'
+      );
+    } catch (err) {
+      console.warn('[DCNContext] Falha ao persistir avanço no backend:', err);
+    }
 
     // 3. Se a etapa avançou para ENCERRADA, acionar explicitamente a notificação de encerramento e exibir popup
     if (isClosing) {
@@ -856,8 +932,9 @@ export const DCNProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   };
 
   // Revert DCN Status
-  const revertDCNStatus = (id: string, targetStatus: DCNStatus, reason: string) => {
+  const revertDCNStatus = async (id: string, targetStatus: DCNStatus, reason: string): Promise<void> => {
     const timestamp = new Date().toISOString().replace('T', ' ').slice(0, 16);
+    let updatedReverted: DCN | null = null;
     setDcns(prev => prev.map(dcn => {
       if (dcn.id !== id) return dcn;
 
@@ -872,22 +949,30 @@ export const DCNProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         comment: `Motivo da devolução: ${reason}`
       };
 
-      return {
+      const reverted = {
         ...dcn,
         status: targetStatus,
         auditTrail: [...dcn.auditTrail, auditEntry]
       };
+      updatedReverted = reverted;
+      return reverted;
     }));
 
-    api.updateDCN(
-      id,
-      { status: targetStatus },
-      `Retorno de Etapa: ${targetStatus}. Motivo: ${reason}`,
-      currentEngineer.name,
-      'Engenharia de Processos'
-    ).catch(err => {
+    if (updatedReverted) {
+      setSelectedDCN(prev => (prev?.id === id ? updatedReverted : prev));
+    }
+
+    try {
+      await api.updateDCN(
+        id,
+        { status: targetStatus },
+        `Retorno de Etapa: ${targetStatus}. Motivo: ${reason}`,
+        currentEngineer.name,
+        'Engenharia de Processos'
+      );
+    } catch (err) {
       console.warn('[DCNContext] Falha ao persistir retorno de etapa no PostgreSQL:', err);
-    });
+    }
   };
 
   // Update Material Status
@@ -1331,6 +1416,7 @@ export const DCNProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         filteredDCNs,
         stats,
         currentEngineer,
+        isPostgresMode,
         technicians,
         addTechnician,
         updateTechnician,

@@ -88,29 +88,156 @@ function addBusinessDays(startDateStr: string, daysToAdd: number): string {
   return `${y}-${m}-${d}`;
 }
 
+// ==========================================
+// Persistência: PostgreSQL (Produção / Deploy) vs Local (Dev)
+// ==========================================
+const isDatabaseConfigured = Boolean(process.env.DATABASE_URL && process.env.DATABASE_URL.trim());
+const DATA_DIR = path.join(process.cwd(), 'data');
+if (!fs.existsSync(DATA_DIR)) {
+  try {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+  } catch {}
+}
+const DCNS_FILE = path.join(DATA_DIR, 'local_dcns.json');
+const TECHS_FILE = path.join(DATA_DIR, 'local_technicians.json');
+const NOTIF_SETTINGS_FILE = path.join(DATA_DIR, 'notification_settings.json');
+const NOTIF_LOGS_FILE = path.join(DATA_DIR, 'notification_logs.json');
+
+function loadLocalDCNs(): any[] {
+  try {
+    if (fs.existsSync(DCNS_FILE)) {
+      const data = fs.readFileSync(DCNS_FILE, 'utf-8');
+      const parsed = JSON.parse(data);
+      if (Array.isArray(parsed)) {
+        return parsed.filter(
+          (d: any) => !LEGACY_DEMO_DCN_IDS.includes(d.id) && !LEGACY_DEMO_DCN_NUMBERS.includes(d.dcnNumber)
+        );
+      }
+    }
+  } catch (e) {
+    console.error('[Persistence] Error reading local_dcns.json:', e);
+  }
+  return [];
+}
+
+function saveLocalDCNs(dcns: any[]): void {
+  try {
+    fs.writeFileSync(DCNS_FILE, JSON.stringify(dcns, null, 2), 'utf-8');
+  } catch (e) {
+    console.error('[Persistence] Error writing local_dcns.json:', e);
+  }
+}
+
+function loadLocalTechnicians(): any[] {
+  try {
+    if (fs.existsSync(TECHS_FILE)) {
+      const data = fs.readFileSync(TECHS_FILE, 'utf-8');
+      const parsed = JSON.parse(data);
+      if (Array.isArray(parsed)) {
+        return parsed.filter(
+          (t: any) => !LEGACY_DEMO_TECH_IDS.includes(t.id) && !LEGACY_DEMO_TECH_BADGES.includes(t.badge || '')
+        );
+      }
+    }
+  } catch (e) {
+    console.error('[Persistence] Error reading local_technicians.json:', e);
+  }
+  return [];
+}
+
+function saveLocalTechnicians(techs: any[]): void {
+  try {
+    fs.writeFileSync(TECHS_FILE, JSON.stringify(techs, null, 2), 'utf-8');
+  } catch (e) {
+    console.error('[Persistence] Error writing local_technicians.json:', e);
+  }
+}
+
+function loadLocalNotificationSettings(): NotificationSettings {
+  try {
+    if (fs.existsSync(NOTIF_SETTINGS_FILE)) {
+      const data = fs.readFileSync(NOTIF_SETTINGS_FILE, 'utf-8');
+      return { ...DEFAULT_NOTIFICATION_SETTINGS, ...JSON.parse(data) };
+    }
+  } catch (e) {
+    console.error('[Persistence] Error reading notification_settings.json:', e);
+  }
+  return { ...DEFAULT_NOTIFICATION_SETTINGS };
+}
+
+function saveLocalNotificationSettings(settings: NotificationSettings): void {
+  try {
+    fs.writeFileSync(NOTIF_SETTINGS_FILE, JSON.stringify(settings, null, 2), 'utf-8');
+  } catch (e) {
+    console.error('[Persistence] Error writing notification_settings.json:', e);
+  }
+}
+
+function loadLocalNotificationLogs(): NotificationLogEntry[] {
+  try {
+    if (fs.existsSync(NOTIF_LOGS_FILE)) {
+      const data = fs.readFileSync(NOTIF_LOGS_FILE, 'utf-8');
+      const parsed = JSON.parse(data);
+      if (Array.isArray(parsed)) {
+        return parsed.filter((l: NotificationLogEntry) => l.dcnCount && l.dcnCount > 0);
+      }
+    }
+  } catch (e) {
+    console.error('[Persistence] Error reading notification_logs.json:', e);
+  }
+  return [];
+}
+
+function saveLocalNotificationLogs(logs: NotificationLogEntry[]): void {
+  try {
+    fs.writeFileSync(NOTIF_LOGS_FILE, JSON.stringify(logs, null, 2), 'utf-8');
+  } catch (e) {
+    console.error('[Persistence] Error writing notification_logs.json:', e);
+  }
+}
+
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 // Healthcheck
 app.get('/api/health', async (_req: Request, res: Response) => {
-  try {
-    await prisma.$queryRaw`SELECT 1`;
-    let minioStatus = 'connected';
+  let dbStatus = 'disconnected';
+  if (isDatabaseConfigured) {
     try {
-      await minioClient.bucketExists(MINIO_BUCKET);
+      await prisma.$queryRaw`SELECT 1`;
+      dbStatus = 'connected';
     } catch {
-      minioStatus = 'disconnected';
+      dbStatus = 'error';
     }
-    res.json({ status: 'ok', database: 'connected', minio: minioStatus, timestamp: new Date().toISOString() });
-  } catch (error: any) {
-    res.status(503).json({
+  }
+
+  let minioStatus = 'disconnected';
+  try {
+    await minioClient.bucketExists(MINIO_BUCKET);
+    minioStatus = 'connected';
+  } catch {}
+
+  const storageMode = (isDatabaseConfigured && dbStatus === 'connected') ? 'POSTGRESQL' : 'LOCAL_OFFLINE';
+
+  if (isDatabaseConfigured && dbStatus !== 'connected') {
+    return res.status(503).json({
       status: 'degraded',
-      database: 'disconnected',
-      message: 'PostgreSQL database connection pending or unreachable.',
-      error: error.message
+      database: dbStatus,
+      storageMode: 'POSTGRESQL',
+      minio: minioStatus,
+      message: 'PostgreSQL database configured but connection unreachable.',
+      timestamp: new Date().toISOString()
     });
   }
+
+  res.json({
+    status: 'ok',
+    database: dbStatus,
+    storageMode,
+    minio: minioStatus,
+    timestamp: new Date().toISOString()
+  });
 });
 
 // ==========================================
@@ -452,206 +579,315 @@ app.delete('/api/users/:id', async (req: Request, res: Response) => {
 
 // GET /api/dcns - List all DCNs with relations
 app.get('/api/dcns', async (_req: Request, res: Response) => {
-  try {
-    const dcns = await prisma.dCN.findMany({
-      include: {
-        materials: true,
-        training: {
-          include: {
-            attendeesList: true
+  if (isDatabaseConfigured) {
+    try {
+      const dcns = await prisma.dCN.findMany({
+        include: {
+          materials: true,
+          training: {
+            include: {
+              attendeesList: true
+            }
+          },
+          implementationChecklist: true,
+          attachments: true,
+          auditTrail: {
+            orderBy: { createdAt: 'desc' }
           }
         },
-        implementationChecklist: true,
-        attachments: true,
-        auditTrail: {
-          orderBy: { createdAt: 'desc' }
-        }
-      },
-      orderBy: { createdAt: 'desc' }
-    });
-
-    res.json(dcns);
-  } catch (error: any) {
-    console.error('Error fetching DCNs:', error);
-    res.status(500).json({ error: 'Failed to fetch DCNs', details: error.message });
+        orderBy: { createdAt: 'desc' }
+      });
+      return res.json(dcns);
+    } catch (error: any) {
+      console.error('[PostgreSQL] Erro ao buscar DCNs no banco:', error);
+      return res.status(500).json({ error: 'Erro ao buscar DCNs no PostgreSQL', details: error.message });
+    }
   }
+
+  // Execução local sem PostgreSQL configurado
+  const localDcns = loadLocalDCNs();
+  return res.json(localDcns);
 });
 
 // GET /api/dcns/:id - Single DCN
 app.get('/api/dcns/:id', async (req: Request, res: Response) => {
-  try {
-    const { id } = req.params;
-    const dcn = await prisma.dCN.findUnique({
-      where: { id },
-      include: {
-        materials: true,
-        training: {
-          include: {
-            attendeesList: true
+  const { id } = req.params;
+  if (isDatabaseConfigured) {
+    try {
+      const dcn = await prisma.dCN.findFirst({
+        where: { OR: [{ id }, { dcnNumber: id }] },
+        include: {
+          materials: true,
+          training: {
+            include: {
+              attendeesList: true
+            }
+          },
+          implementationChecklist: true,
+          attachments: true,
+          auditTrail: {
+            orderBy: { createdAt: 'desc' }
           }
-        },
-        implementationChecklist: true,
-        attachments: true,
-        auditTrail: {
-          orderBy: { createdAt: 'desc' }
         }
+      });
+
+      if (!dcn) {
+        return res.status(404).json({ error: 'DCN não encontrada no PostgreSQL.' });
       }
-    });
-
-    if (!dcn) {
-      return res.status(404).json({ error: 'DCN not found' });
+      return res.json(dcn);
+    } catch (error: any) {
+      return res.status(500).json({ error: 'Erro ao consultar DCN no PostgreSQL', details: error.message });
     }
-
-    res.json(dcn);
-  } catch (error: any) {
-    res.status(500).json({ error: 'Failed to fetch DCN', details: error.message });
   }
+
+  const local = loadLocalDCNs().find(d => d.id === id || d.dcnNumber === id);
+  if (local) {
+    return res.json(local);
+  }
+  return res.status(404).json({ error: 'DCN not found' });
 });
 
 // POST /api/dcns - Create new DCN
 app.post('/api/dcns', async (req: Request, res: Response) => {
-  try {
-    const {
-      id,
-      dcnNumber,
-      revision,
-      productFamily,
-      title,
-      description,
-      area,
-      responsible,
-      receivedDate,
-      dueDate,
-      status,
-      priority,
-      needsMaterial,
-      materials = [],
-      needsTraining,
-      training,
-      implementationChecklist = [],
-      attachments = [],
-      auditTrail = [],
-      engineeringReview
-    } = req.body;
+  const {
+    id,
+    dcnNumber,
+    revision,
+    productFamily,
+    title,
+    description,
+    area,
+    responsible,
+    receivedDate,
+    dueDate,
+    status,
+    priority,
+    needsMaterial,
+    materials = [],
+    needsTraining,
+    training,
+    implementationChecklist = [],
+    attachments = [],
+    auditTrail = [],
+    engineeringReview
+  } = req.body;
 
-    const newDCN = await prisma.dCN.create({
-      data: {
-        id: id || undefined,
-        dcnNumber,
-        revision: revision || null,
-        productFamily: productFamily || null,
-        title,
-        description: description || '',
-        area,
-        responsible,
-        receivedDate,
-        dueDate,
-        status: status || 'RECEBIDA',
-        priority: priority || 'MEDIA',
-        needsMaterial: Boolean(needsMaterial),
-        needsTraining: Boolean(needsTraining),
-        engineeringReview: engineeringReview || null,
-        materials: {
-          create: materials.map((m: any) => ({
-            code: m.code,
-            description: m.description,
-            quantity: Number(m.quantity) || 1,
-            unit: m.unit || 'UN',
-            supplier: m.supplier || '',
-            expectedDate: m.expectedDate || '',
-            arrivalDate: m.arrivalDate || null,
-            status: m.status || 'PENDENTE',
-            notes: m.notes || null
-          }))
-        },
-        training: training ? {
-          create: {
-            instructor: training.instructor || '',
-            targetAudience: training.targetAudience || '',
-            department: training.department || '',
-            estimatedHours: Number(training.estimatedHours) || 30,
-            scheduledDate: training.scheduledDate || null,
-            completionDate: training.completionDate || null,
-            totalTrained: Number(training.totalTrained) || 0,
-            totalPlanned: Number(training.totalPlanned) || 0,
-            status: training.status || 'PENDENTE',
-            trainingTopics: training.trainingTopics || [],
-            evidenceDoc: training.evidenceDoc || null,
-            attendeesList: {
-              create: (training.attendeesList || []).map((a: any) => ({
-                technicianId: a.technicianId || null,
-                name: a.name,
-                badge: a.badge || '',
-                department: a.department || '',
-                signedDate: a.signedDate || null,
-                status: a.status || 'PENDENTE',
-                score: a.score !== undefined ? Number(a.score) : null
-              }))
+  if (isDatabaseConfigured) {
+    try {
+      const newDCN = await prisma.dCN.create({
+        data: {
+          id: id || undefined,
+          dcnNumber,
+          revision: revision || null,
+          productFamily: productFamily || null,
+          title,
+          description: description || '',
+          area,
+          responsible,
+          receivedDate,
+          dueDate,
+          status: status || 'RECEBIDA',
+          priority: priority || 'MEDIA',
+          needsMaterial: Boolean(needsMaterial),
+          needsTraining: Boolean(needsTraining),
+          engineeringReview: engineeringReview || null,
+          materials: {
+            create: materials.map((m: any) => ({
+              code: m.code,
+              description: m.description,
+              quantity: Number(m.quantity) || 1,
+              unit: m.unit || 'UN',
+              supplier: m.supplier || '',
+              expectedDate: m.expectedDate || '',
+              arrivalDate: m.arrivalDate || null,
+              status: m.status || 'PENDENTE',
+              notes: m.notes || null
+            }))
+          },
+          training: training ? {
+            create: {
+              instructor: training.instructor || '',
+              targetAudience: training.targetAudience || '',
+              department: training.department || '',
+              estimatedHours: Number(training.estimatedHours) || 30,
+              scheduledDate: training.scheduledDate || null,
+              completionDate: training.completionDate || null,
+              totalTrained: Number(training.totalTrained) || 0,
+              totalPlanned: Number(training.totalPlanned) || 0,
+              status: training.status || (training.scheduledDate ? 'AGENDADO' : 'PENDENTE'),
+              trainingTopics: training.trainingTopics || [],
+              evidenceDoc: training.evidenceDoc || null,
+              attendeesList: {
+                create: (training.attendeesList || []).map((a: any) => ({
+                  technicianId: a.technicianId || null,
+                  name: a.name,
+                  badge: a.badge || '',
+                  department: a.department || '',
+                  signedDate: a.signedDate || null,
+                  status: a.status || 'PENDENTE',
+                  score: a.score !== undefined ? Number(a.score) : null
+                }))
+              }
             }
+          } : undefined,
+          implementationChecklist: {
+            create: implementationChecklist.map((c: any) => ({
+              title: c.title,
+              responsible: c.responsible,
+              completed: Boolean(c.completed),
+              completedAt: c.completedAt || null,
+              mandatory: c.mandatory !== undefined ? Boolean(c.mandatory) : true
+            }))
+          },
+          attachments: {
+            create: attachments.map((a: any) => ({
+              name: a.name,
+              type: a.type || 'PDF',
+              size: a.size || '1MB',
+              category: a.category || 'DOCUMENTO_COMPLEMENTAR',
+              uploadedAt: a.uploadedAt || new Date().toISOString(),
+              uploadedBy: a.uploadedBy || responsible,
+              url: a.url || null
+            }))
+          },
+          auditTrail: {
+            create: [
+              ...(auditTrail && auditTrail.length > 0 ? auditTrail.map((entry: any) => ({
+                timestamp: entry.timestamp || new Date().toISOString(),
+                user: entry.user || responsible,
+                userRole: entry.userRole || 'Engenheiro de Processos',
+                action: entry.action || 'DCN Cadastrada',
+                fromStatus: entry.fromStatus || null,
+                toStatus: entry.toStatus || status || 'RECEBIDA',
+                comment: entry.comment || 'Criação inicial no sistema'
+              })) : [{
+                timestamp: new Date().toISOString(),
+                user: responsible,
+                userRole: 'Engenheiro de Processos',
+                action: 'DCN Cadastrada',
+                fromStatus: null,
+                toStatus: status || 'RECEBIDA',
+                comment: 'Criação da DCN'
+              }])
+            ]
           }
-        } : undefined,
-        implementationChecklist: {
-          create: implementationChecklist.map((c: any) => ({
-            title: c.title,
-            responsible: c.responsible,
-            completed: Boolean(c.completed),
-            completedAt: c.completedAt || null,
-            mandatory: c.mandatory !== undefined ? Boolean(c.mandatory) : true
-          }))
         },
-        attachments: {
-          create: attachments.map((a: any) => ({
-            name: a.name,
-            type: a.type || 'PDF',
-            size: a.size || '1MB',
-            category: a.category || 'DOCUMENTO_COMPLEMENTAR',
-            uploadedAt: a.uploadedAt || new Date().toISOString(),
-            uploadedBy: a.uploadedBy || responsible,
-            url: a.url || null
-          }))
-        },
-        auditTrail: {
-          create: [
-            ...(auditTrail.length > 0 ? auditTrail.map((entry: any) => ({
-              timestamp: entry.timestamp || new Date().toISOString(),
-              user: entry.user || responsible,
-              userRole: entry.userRole || 'Engenheiro de Processos',
-              action: entry.action || 'DCN Cadastrada',
-              fromStatus: entry.fromStatus || null,
-              toStatus: entry.toStatus || status || 'RECEBIDA',
-              comment: entry.comment || 'Criação inicial no sistema'
-            })) : [{
-              timestamp: new Date().toISOString(),
-              user: responsible,
-              userRole: 'Engenheiro de Processos',
-              action: 'DCN Cadastrada',
-              fromStatus: null,
-              toStatus: status || 'RECEBIDA',
-              comment: 'Criação da DCN'
-            }])
-          ]
+        include: {
+          materials: true,
+          training: {
+            include: { attendeesList: true }
+          },
+          implementationChecklist: true,
+          attachments: true,
+          auditTrail: true
         }
-      },
-      include: {
-        materials: true,
-        training: {
-          include: { attendeesList: true }
-        },
-        implementationChecklist: true,
-        attachments: true,
-        auditTrail: true
+      });
+      return res.status(201).json(newDCN);
+    } catch (error: any) {
+      console.error('[PostgreSQL] Erro ao criar DCN:', error);
+      let msg = 'Falha ao criar DCN no PostgreSQL.';
+      if (error.code === 'P2002') {
+        msg = `Já existe uma DCN cadastrada com o número informado (${dcnNumber || ''}).`;
       }
-    });
-
-    res.status(201).json(newDCN);
-  } catch (error: any) {
-    console.error('Error creating DCN:', error);
-    let msg = 'Failed to create DCN';
-    if (error.code === 'P2002') {
-      msg = `Já existe uma DCN cadastrada com o número informado (${req.body?.dcnNumber || ''}).`;
+      return res.status(500).json({ error: msg, details: error.message });
     }
-    res.status(500).json({ error: msg, details: error.message });
   }
+
+  // Fallback offline (apenas em dev local sem PostgreSQL)
+  const localDCN = {
+    id: id || `dcn-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+    dcnNumber,
+    revision: revision || null,
+    productFamily: productFamily || null,
+    title,
+    description: description || '',
+    area,
+    responsible,
+    receivedDate: receivedDate || new Date().toISOString().split('T')[0],
+    dueDate: dueDate || new Date().toISOString().split('T')[0],
+    status: status || 'RECEBIDA',
+    priority: priority || 'MEDIA',
+    needsMaterial: Boolean(needsMaterial),
+    needsTraining: Boolean(needsTraining),
+    engineeringReview: engineeringReview || null,
+    materials: (materials || []).map((m: any) => ({
+      id: m.id || `mat-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+      code: m.code,
+      description: m.description,
+      quantity: Number(m.quantity) || 1,
+      unit: m.unit || 'UN',
+      supplier: m.supplier || '',
+      expectedDate: m.expectedDate || '',
+      arrivalDate: m.arrivalDate || null,
+      status: m.status || 'PENDENTE',
+      notes: m.notes || null
+    })),
+    training: training ? {
+      id: training.id || `trn-${Date.now()}`,
+      instructor: training.instructor || '',
+      targetAudience: training.targetAudience || '',
+      department: training.department || '',
+      estimatedHours: Number(training.estimatedHours) || 30,
+      scheduledDate: training.scheduledDate || null,
+      completionDate: training.completionDate || null,
+      totalTrained: Number(training.totalTrained) || 0,
+      totalPlanned: Number(training.totalPlanned) || 0,
+      status: training.status || (training.scheduledDate ? 'AGENDADO' : 'PENDENTE'),
+      trainingTopics: training.trainingTopics || [],
+      evidenceDoc: training.evidenceDoc || null,
+      attendeesList: (training.attendeesList || []).map((a: any) => ({
+        id: a.id || `att-tech-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+        technicianId: a.technicianId || null,
+        name: a.name,
+        badge: a.badge || '',
+        department: a.department || '',
+        signedDate: a.signedDate || null,
+        status: a.status || 'PENDENTE',
+        score: a.score !== undefined ? Number(a.score) : null
+      }))
+    } : null,
+    implementationChecklist: (implementationChecklist || []).map((c: any) => ({
+      id: c.id || `chk-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+      title: c.title,
+      responsible: c.responsible,
+      completed: Boolean(c.completed),
+      completedAt: c.completedAt || null,
+      mandatory: c.mandatory !== undefined ? Boolean(c.mandatory) : true
+    })),
+    attachments: (attachments || []).map((a: any) => ({
+      id: a.id || `att-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+      name: a.name,
+      type: a.type || 'PDF',
+      size: a.size || '1MB',
+      category: a.category || 'DOCUMENTO_COMPLEMENTAR',
+      uploadedAt: a.uploadedAt || new Date().toISOString(),
+      uploadedBy: a.uploadedBy || responsible,
+      url: a.url || null
+    })),
+    auditTrail: (auditTrail && auditTrail.length > 0) ? auditTrail : [{
+      id: `aud-${Date.now()}`,
+      timestamp: new Date().toISOString().replace('T', ' ').slice(0, 16),
+      user: responsible,
+      userRole: 'Engenheiro de Processos',
+      action: 'DCN Cadastrada',
+      fromStatus: null,
+      toStatus: status || 'RECEBIDA',
+      comment: 'Criação da DCN'
+    }],
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  };
+
+  const localDcns = loadLocalDCNs();
+  const existingIdx = localDcns.findIndex(d => d.id === localDCN.id || d.dcnNumber === localDCN.dcnNumber);
+  if (existingIdx >= 0) {
+    localDcns[existingIdx] = localDCN;
+  } else {
+    localDcns.unshift(localDCN);
+  }
+  saveLocalDCNs(localDcns);
+
+  return res.status(201).json(localDCN);
 });
 
 // PUT /api/dcns/:id - Update DCN fields & audit
@@ -659,19 +895,18 @@ app.put('/api/dcns/:id', async (req: Request, res: Response) => {
   const { id } = req.params;
   const { auditComment, user, userRole, ...fields } = req.body;
 
-  let currentDCN: any = null;
-  try {
-    currentDCN = await prisma.dCN.findFirst({
-      where: { OR: [{ id }, { dcnNumber: id }] }
-    });
-  } catch {
-    // Prisma offline
-  }
+  if (isDatabaseConfigured) {
+    try {
+      const currentDCN = await prisma.dCN.findFirst({
+        where: { OR: [{ id }, { dcnNumber: id }] }
+      });
 
-  const isClosing = fields.status === 'ENCERRADA' && (!currentDCN || currentDCN.status !== 'ENCERRADA');
+      if (!currentDCN) {
+        return res.status(404).json({ error: 'DCN não encontrada no PostgreSQL.' });
+      }
 
-  try {
-    if (currentDCN) {
+      const isClosing = fields.status === 'ENCERRADA' && currentDCN.status !== 'ENCERRADA';
+
       if (fields.status === 'IMPLEMENTADA' && currentDCN.status === 'PRONTA_IMPLEMENTACAO') {
         const training = await prisma.trainingRecord.findUnique({ where: { dcnId: currentDCN.id } });
         if (!training?.scheduledDate || !training.scheduledDate.trim()) {
@@ -680,7 +915,6 @@ app.put('/api/dcns/:id', async (req: Request, res: Response) => {
       }
 
       const updated = await prisma.$transaction(async (tx) => {
-        // Create audit entry if status changed or comment provided
         if (auditComment || (fields.status && fields.status !== currentDCN.status)) {
           await tx.auditLogEntry.create({
             data: {
@@ -696,7 +930,6 @@ app.put('/api/dcns/:id', async (req: Request, res: Response) => {
           });
         }
 
-        // Filter scalar fields for direct update
         const updateData: any = {};
         const allowedFields = [
           'dcnNumber', 'revision', 'productFamily', 'title', 'description', 'area', 'responsible', 'receivedDate', 'dueDate',
@@ -710,7 +943,6 @@ app.put('/api/dcns/:id', async (req: Request, res: Response) => {
           }
         }
 
-        // Sync materials if provided in update payload
         if (Array.isArray(fields.materials)) {
           await tx.materialItem.deleteMany({ where: { dcnId: currentDCN.id } });
           if (fields.materials.length > 0) {
@@ -731,7 +963,6 @@ app.put('/api/dcns/:id', async (req: Request, res: Response) => {
           }
         }
 
-        // Sync training if provided in update payload
         if (fields.training && typeof fields.training === 'object') {
           const scheduledDateVal = fields.training.scheduledDate || null;
           await tx.trainingRecord.upsert({
@@ -767,7 +998,6 @@ app.put('/api/dcns/:id', async (req: Request, res: Response) => {
         });
       });
 
-      // Se a DCN foi encerrada nesta atualização, disparar automaticamente e-mail de encerramento
       if (isClosing) {
         sendDCNClosureNotification(currentDCN.id, user || currentDCN.closedBy || 'Engenharia CTDI', updated).catch(err => {
           console.warn('[DCN Closure] Falha ao enviar notificação de encerramento:', err);
@@ -775,292 +1005,462 @@ app.put('/api/dcns/:id', async (req: Request, res: Response) => {
       }
 
       return res.json(updated);
+    } catch (error: any) {
+      console.error('[PostgreSQL] Erro ao atualizar DCN:', error);
+      return res.status(500).json({ error: 'Erro ao atualizar DCN no PostgreSQL', details: error.message });
     }
-  } catch (error: any) {
-    console.warn('[PUT /api/dcns/:id] DB indisponível, usando contingência local:', error.message);
   }
 
-  // Fallback offline / contingência
-  const fallbackDCN = {
-    id,
-    ...fields,
-    status: fields.status || 'RECEBIDA',
-    updatedAt: new Date().toISOString()
-  };
+  // Fallback offline (execução local sem PostgreSQL)
+  const local = loadLocalDCNs().find(d => d.id === id || d.dcnNumber === id);
+  const currentDCN = local || null;
+  const isClosing = fields.status === 'ENCERRADA' && (!currentDCN || currentDCN.status !== 'ENCERRADA');
+
+  const localDcns = loadLocalDCNs();
+  const index = localDcns.findIndex(d => d.id === id || d.dcnNumber === id);
+  let savedDCN: any;
+
+  if (index !== -1) {
+    const existing = localDcns[index];
+    const newAudit = [...(existing.auditTrail || [])];
+    if (auditComment || (fields.status && fields.status !== existing.status)) {
+      newAudit.push({
+        id: `aud-${Date.now()}`,
+        timestamp: new Date().toISOString().replace('T', ' ').slice(0, 16),
+        user: user || 'Engenharia CTDI',
+        userRole: userRole || 'Engenheiro Responsável',
+        action: fields.status && fields.status !== existing.status ? `Status alterado para ${fields.status}` : 'Atualização de dados',
+        fromStatus: existing.status,
+        toStatus: fields.status || existing.status,
+        comment: auditComment || 'Atualização via sistema'
+      });
+    }
+
+    savedDCN = {
+      ...existing,
+      ...fields,
+      auditTrail: newAudit,
+      updatedAt: new Date().toISOString()
+    };
+    localDcns[index] = savedDCN;
+  } else {
+    savedDCN = {
+      id,
+      ...fields,
+      status: fields.status || 'RECEBIDA',
+      auditTrail: [{
+        id: `aud-${Date.now()}`,
+        timestamp: new Date().toISOString().replace('T', ' ').slice(0, 16),
+        user: user || 'Engenharia CTDI',
+        userRole: userRole || 'Engenheiro Responsável',
+        action: 'Atualização offline',
+        comment: auditComment || 'DCN atualizada em modo contingência'
+      }],
+      updatedAt: new Date().toISOString()
+    };
+    localDcns.push(savedDCN);
+  }
+
+  saveLocalDCNs(localDcns);
 
   if (isClosing) {
-    sendDCNClosureNotification(id, user || 'Engenharia CTDI', fallbackDCN).catch(err => {
+    sendDCNClosureNotification(id, user || 'Engenharia CTDI', savedDCN).catch(err => {
       console.warn('[DCN Closure Fallback] Falha ao enviar notificação de encerramento:', err);
     });
   }
 
-  res.json(fallbackDCN);
+  return res.json(savedDCN);
 });
 
 // DELETE /api/dcns/:id
 app.delete('/api/dcns/:id', async (req: Request, res: Response) => {
-  try {
-    const { id } = req.params;
-    await prisma.dCN.delete({ where: { id } });
-    res.json({ success: true, message: 'DCN deleted successfully' });
-  } catch (error: any) {
-    res.status(500).json({ error: 'Failed to delete DCN', details: error.message });
+  const { id } = req.params;
+  if (isDatabaseConfigured) {
+    try {
+      await prisma.dCN.delete({ where: { id } });
+      return res.json({ success: true, message: 'DCN excluída com sucesso do PostgreSQL.' });
+    } catch (error: any) {
+      return res.status(500).json({ error: 'Falha ao excluir DCN no PostgreSQL', details: error.message });
+    }
   }
+
+  const localDcns = loadLocalDCNs().filter(d => d.id !== id && d.dcnNumber !== id);
+  saveLocalDCNs(localDcns);
+  return res.json({ success: true, message: 'DCN deleted successfully (modo local)' });
 });
 
 // Material Endpoints
 app.post('/api/dcns/:id/materials', async (req: Request, res: Response) => {
-  try {
-    const { id } = req.params;
-    const material = await prisma.materialItem.create({
-      data: {
-        dcnId: id,
-        ...req.body
-      }
-    });
-    res.status(201).json(material);
-  } catch (error: any) {
-    res.status(500).json({ error: 'Failed to add material', details: error.message });
+  const { id } = req.params;
+  if (isDatabaseConfigured) {
+    try {
+      const material = await prisma.materialItem.create({
+        data: {
+          dcnId: id,
+          ...req.body
+        }
+      });
+      return res.status(201).json(material);
+    } catch (error: any) {
+      return res.status(500).json({ error: 'Erro ao cadastrar material no PostgreSQL', details: error.message });
+    }
   }
+
+  // Execução local sem PostgreSQL
+  const newMaterial = {
+    id: `mat-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+    dcnId: id,
+    code: req.body.code || '',
+    description: req.body.description || '',
+    quantity: Number(req.body.quantity) || 1,
+    unit: req.body.unit || 'UN',
+    supplier: req.body.supplier || '',
+    expectedDate: req.body.expectedDate || '',
+    arrivalDate: req.body.arrivalDate || null,
+    status: req.body.status || 'PENDENTE',
+    notes: req.body.notes || null
+  };
+  const localDcns = loadLocalDCNs();
+  const dcn = localDcns.find(d => d.id === id || d.dcnNumber === id);
+  if (dcn) {
+    dcn.materials = dcn.materials || [];
+    dcn.materials.push(newMaterial);
+    dcn.needsMaterial = true;
+    saveLocalDCNs(localDcns);
+  }
+  return res.status(201).json(newMaterial);
 });
 
 app.put('/api/dcns/:id/materials/:materialId', async (req: Request, res: Response) => {
-  try {
-    const { id, materialId } = req.params;
-    const today = new Date().toISOString().split('T')[0];
+  const { id, materialId } = req.params;
+  const today = new Date().toISOString().split('T')[0];
 
-    const updateData = { ...req.body };
-    if ((updateData.status === 'RECEBIDO_ESTOQUE' || updateData.status === 'INSPECIONADO_APROVADO') && !updateData.arrivalDate) {
-      updateData.arrivalDate = today;
+  const updateData = { ...req.body };
+  if ((updateData.status === 'RECEBIDO_ESTOQUE' || updateData.status === 'INSPECIONADO_APROVADO') && !updateData.arrivalDate) {
+    updateData.arrivalDate = today;
+  }
+
+  if (isDatabaseConfigured) {
+    try {
+      const material = await prisma.materialItem.update({
+        where: { id: materialId },
+        data: updateData
+      });
+
+      const currentDCN = await prisma.dCN.findUnique({
+        where: { id },
+        include: { materials: true }
+      });
+
+      if (currentDCN && currentDCN.status === 'AGUARDANDO_MATERIAL') {
+        const allReady = currentDCN.materials.length > 0 && currentDCN.materials.every(
+          m => m.status === 'RECEBIDO_ESTOQUE' || m.status === 'INSPECIONADO_APROVADO'
+        );
+
+        if (allReady) {
+          const newDueDate = addBusinessDays(today, 3);
+          await prisma.dCN.update({
+            where: { id },
+            data: { dueDate: newDueDate }
+          });
+          await prisma.auditLogEntry.create({
+            data: {
+              dcnId: id,
+              timestamp: new Date().toISOString(),
+              user: req.body.user || 'Controle de Materiais',
+              userRole: 'Controle de Materiais',
+              action: 'SLA Atualizado: 3 Dias Úteis pós-materiais',
+              fromStatus: currentDCN.status,
+              toStatus: currentDCN.status,
+              comment: `Todos os materiais foram recebidos em estoque em ${today}. O SLA foi recalculado para 3 dias úteis: ${newDueDate}.`
+            }
+          });
+        }
+      }
+
+      return res.json(material);
+    } catch (error: any) {
+      return res.status(500).json({ error: 'Erro ao atualizar material no PostgreSQL', details: error.message });
     }
+  }
 
-    const material = await prisma.materialItem.update({
-      where: { id: materialId },
-      data: updateData
-    });
+  // Execução local sem PostgreSQL
+  const localDcns = loadLocalDCNs();
+  const dcn = localDcns.find(d => d.id === id || d.dcnNumber === id);
+  let updatedMaterial: any = null;
+  if (dcn && dcn.materials) {
+    const matIndex = dcn.materials.findIndex((m: any) => m.id === materialId);
+    if (matIndex !== -1) {
+      dcn.materials[matIndex] = { ...dcn.materials[matIndex], ...updateData };
+      updatedMaterial = dcn.materials[matIndex];
 
-    // Se a DCN está no status AGUARDANDO_MATERIAL e agora todos os materiais estão recebidos em estoque,
-    // recalcular o SLA para 3 dias úteis a contar do recebimento
-    const currentDCN = await prisma.dCN.findUnique({
-      where: { id },
-      include: { materials: true }
-    });
-
-    if (currentDCN && currentDCN.status === 'AGUARDANDO_MATERIAL') {
-      const allReady = currentDCN.materials.length > 0 && currentDCN.materials.every(
-        m => m.status === 'RECEBIDO_ESTOQUE' || m.status === 'INSPECIONADO_APROVADO'
+      const allReady = dcn.materials.length > 0 && dcn.materials.every(
+        (m: any) => m.status === 'RECEBIDO_ESTOQUE' || m.status === 'INSPECIONADO_APROVADO'
       );
-
-      if (allReady) {
-        const newDueDate = addBusinessDays(today, 3);
-        await prisma.dCN.update({
-          where: { id },
-          data: { dueDate: newDueDate }
-        });
-        await prisma.auditLogEntry.create({
-          data: {
-            dcnId: id,
-            timestamp: new Date().toISOString(),
-            user: req.body.user || 'Controle de Materiais',
-            userRole: 'Controle de Materiais',
-            action: 'SLA Atualizado: 3 Dias Úteis pós-materiais',
-            fromStatus: currentDCN.status,
-            toStatus: currentDCN.status,
-            comment: `Todos os materiais foram recebidos em estoque em ${today}. O SLA foi recalculado para 3 dias úteis: ${newDueDate}.`
-          }
+      if (dcn.status === 'AGUARDANDO_MATERIAL' && allReady) {
+        dcn.dueDate = addBusinessDays(today, 3);
+        dcn.auditTrail = dcn.auditTrail || [];
+        dcn.auditTrail.push({
+          id: `aud-${Date.now()}-sla`,
+          timestamp: new Date().toISOString().replace('T', ' ').slice(0, 16),
+          user: req.body.user || 'Controle de Materiais',
+          userRole: 'Controle de Materiais',
+          action: 'SLA Atualizado: 3 Dias Úteis pós-materiais',
+          comment: `Todos os materiais foram recebidos em estoque em ${today}. O SLA foi recalculado para 3 dias úteis: ${dcn.dueDate}.`
         });
       }
-    }
 
-    res.json(material);
-  } catch (error: any) {
-    res.status(500).json({ error: 'Failed to update material', details: error.message });
+      saveLocalDCNs(localDcns);
+    }
   }
+
+  return res.json(updatedMaterial || { id: materialId, ...updateData });
 });
 
 // Checklist Endpoints
 app.post('/api/dcns/:id/checklists', async (req: Request, res: Response) => {
-  try {
-    const { id } = req.params;
-    const item = await prisma.implementationChecklist.create({
-      data: {
-        dcnId: id,
-        ...req.body
-      }
-    });
-    res.status(201).json(item);
-  } catch (error: any) {
-    res.status(500).json({ error: 'Failed to add checklist item', details: error.message });
+  const { id } = req.params;
+  if (isDatabaseConfigured) {
+    try {
+      const item = await prisma.implementationChecklist.create({
+        data: {
+          dcnId: id,
+          ...req.body
+        }
+      });
+      return res.status(201).json(item);
+    } catch (error: any) {
+      return res.status(500).json({ error: 'Erro ao cadastrar checklist no PostgreSQL', details: error.message });
+    }
   }
+
+  const localItem = {
+    id: `chk-${Date.now()}`,
+    dcnId: id,
+    ...req.body
+  };
+  return res.status(201).json(localItem);
 });
 
 app.put('/api/dcns/:id/checklists/:checklistId', async (req: Request, res: Response) => {
-  try {
-    const { checklistId } = req.params;
-    const item = await prisma.implementationChecklist.update({
-      where: { id: checklistId },
-      data: req.body
-    });
-    res.json(item);
-  } catch (error: any) {
-    res.status(500).json({ error: 'Failed to update checklist item', details: error.message });
+  const { checklistId } = req.params;
+  if (isDatabaseConfigured) {
+    try {
+      const item = await prisma.implementationChecklist.update({
+        where: { id: checklistId },
+        data: req.body
+      });
+      return res.json(item);
+    } catch (error: any) {
+      return res.status(500).json({ error: 'Erro ao atualizar checklist no PostgreSQL', details: error.message });
+    }
   }
+
+  return res.json({ id: checklistId, ...req.body });
 });
 
 // Training Endpoints
 app.put('/api/dcns/:id/training', async (req: Request, res: Response) => {
-  try {
-    const { id } = req.params;
-    const trainingData = req.body;
+  const { id } = req.params;
+  const trainingData = req.body;
 
-    const existing = await prisma.trainingRecord.findUnique({
-      where: { dcnId: id },
-      include: { attendeesList: true }
-    });
-
-    let result;
-    if (existing) {
-      result = await prisma.trainingRecord.update({
+  if (isDatabaseConfigured) {
+    try {
+      const existing = await prisma.trainingRecord.findUnique({
         where: { dcnId: id },
-        data: {
-          instructor: trainingData.instructor !== undefined ? trainingData.instructor : existing.instructor,
-          targetAudience: trainingData.targetAudience !== undefined ? trainingData.targetAudience : existing.targetAudience,
-          department: trainingData.department !== undefined ? trainingData.department : existing.department,
-          estimatedHours: trainingData.estimatedHours !== undefined ? Number(trainingData.estimatedHours) : existing.estimatedHours,
-          scheduledDate: trainingData.scheduledDate !== undefined ? trainingData.scheduledDate : existing.scheduledDate,
-          completionDate: trainingData.completionDate !== undefined ? trainingData.completionDate : existing.completionDate,
-          status: trainingData.status !== undefined ? trainingData.status : existing.status,
-          trainingTopics: trainingData.trainingTopics !== undefined ? trainingData.trainingTopics : existing.trainingTopics,
-          totalTrained: trainingData.totalTrained !== undefined ? Number(trainingData.totalTrained) : existing.totalTrained,
-          totalPlanned: trainingData.totalPlanned !== undefined ? Number(trainingData.totalPlanned) : existing.totalPlanned,
-          evidenceDoc: trainingData.evidenceDoc !== undefined ? trainingData.evidenceDoc : existing.evidenceDoc
-        },
         include: { attendeesList: true }
       });
 
-      if (Array.isArray(trainingData.attendeesList)) {
-        await prisma.trainingAttendee.deleteMany({
-          where: { trainingId: existing.id }
-        });
-        for (const att of trainingData.attendeesList) {
-          await prisma.trainingAttendee.create({
-            data: {
-              trainingId: existing.id,
-              name: att.name,
-              badge: att.badge || null,
-              technicianId: att.technicianId || null,
-              department: att.department || 'Produção',
-              status: att.status || 'PENDENTE',
-              signedDate: att.signedDate || null
-            }
-          });
-        }
-        result = await prisma.trainingRecord.findUnique({
+      let result;
+      if (existing) {
+        result = await prisma.trainingRecord.update({
           where: { dcnId: id },
+          data: {
+            instructor: trainingData.instructor !== undefined ? trainingData.instructor : existing.instructor,
+            targetAudience: trainingData.targetAudience !== undefined ? trainingData.targetAudience : existing.targetAudience,
+            department: trainingData.department !== undefined ? trainingData.department : existing.department,
+            estimatedHours: trainingData.estimatedHours !== undefined ? Number(trainingData.estimatedHours) : existing.estimatedHours,
+            scheduledDate: trainingData.scheduledDate !== undefined ? trainingData.scheduledDate : existing.scheduledDate,
+            completionDate: trainingData.completionDate !== undefined ? trainingData.completionDate : existing.completionDate,
+            status: trainingData.status !== undefined ? trainingData.status : existing.status,
+            trainingTopics: trainingData.trainingTopics !== undefined ? trainingData.trainingTopics : existing.trainingTopics,
+            totalTrained: trainingData.totalTrained !== undefined ? Number(trainingData.totalTrained) : existing.totalTrained,
+            totalPlanned: trainingData.totalPlanned !== undefined ? Number(trainingData.totalPlanned) : existing.totalPlanned,
+            evidenceDoc: trainingData.evidenceDoc !== undefined ? trainingData.evidenceDoc : existing.evidenceDoc
+          },
           include: { attendeesList: true }
         });
-      }
-    } else {
-      result = await prisma.trainingRecord.create({
-        data: {
-          dcnId: id,
-          instructor: trainingData.instructor || 'Engenharia CTDI',
-          targetAudience: trainingData.targetAudience || 'Líderes, Técnicos de Reparo e Inspetores de CQ.',
-          department: trainingData.department || 'Produção',
-          estimatedHours: Number(trainingData.estimatedHours) || 30,
-          scheduledDate: trainingData.scheduledDate || null,
-          completionDate: trainingData.completionDate || null,
-          totalTrained: Number(trainingData.totalTrained) || 0,
-          totalPlanned: Number(trainingData.totalPlanned) || 0,
-          status: trainingData.status || (trainingData.scheduledDate ? 'AGENDADO' : 'PENDENTE'),
-          trainingTopics: trainingData.trainingTopics || ['Instrução de Trabalho revisada', 'Parâmetros técnicos e tolerâncias de qualidade'],
-          evidenceDoc: trainingData.evidenceDoc || null
-        },
-        include: { attendeesList: true }
-      });
 
-      if (Array.isArray(trainingData.attendeesList) && trainingData.attendeesList.length > 0) {
-        for (const att of trainingData.attendeesList) {
-          await prisma.trainingAttendee.create({
-            data: {
-              trainingId: result.id,
-              name: att.name,
-              badge: att.badge || null,
-              technicianId: att.technicianId || null,
-              department: att.department || 'Produção',
-              status: att.status || 'PENDENTE',
-              signedDate: att.signedDate || null
-            }
+        if (Array.isArray(trainingData.attendeesList)) {
+          await prisma.trainingAttendee.deleteMany({
+            where: { trainingId: existing.id }
+          });
+          for (const att of trainingData.attendeesList) {
+            await prisma.trainingAttendee.create({
+              data: {
+                trainingId: existing.id,
+                name: att.name,
+                badge: att.badge || null,
+                technicianId: att.technicianId || null,
+                department: att.department || 'Produção',
+                status: att.status || 'PENDENTE',
+                signedDate: att.signedDate || null
+              }
+            });
+          }
+          result = await prisma.trainingRecord.findUnique({
+            where: { dcnId: id },
+            include: { attendeesList: true }
           });
         }
-        result = await prisma.trainingRecord.findUnique({
-          where: { dcnId: id },
+      } else {
+        result = await prisma.trainingRecord.create({
+          data: {
+            dcnId: id,
+            instructor: trainingData.instructor || 'Engenharia CTDI',
+            targetAudience: trainingData.targetAudience || 'Líderes, Técnicos de Reparo e Inspetores de CQ.',
+            department: trainingData.department || 'Produção',
+            estimatedHours: Number(trainingData.estimatedHours) || 30,
+            scheduledDate: trainingData.scheduledDate || null,
+            completionDate: trainingData.completionDate || null,
+            totalTrained: Number(trainingData.totalTrained) || 0,
+            totalPlanned: Number(trainingData.totalPlanned) || 0,
+            status: trainingData.status || (trainingData.scheduledDate ? 'AGENDADO' : 'PENDENTE'),
+            trainingTopics: trainingData.trainingTopics || ['Instrução de Trabalho revisada', 'Parâmetros técnicos e tolerâncias de qualidade'],
+            evidenceDoc: trainingData.evidenceDoc || null
+          },
           include: { attendeesList: true }
+        });
+
+        if (Array.isArray(trainingData.attendeesList) && trainingData.attendeesList.length > 0) {
+          for (const att of trainingData.attendeesList) {
+            await prisma.trainingAttendee.create({
+              data: {
+                trainingId: result.id,
+                name: att.name,
+                badge: att.badge || null,
+                technicianId: att.technicianId || null,
+                department: att.department || 'Produção',
+                status: att.status || 'PENDENTE',
+                signedDate: att.signedDate || null
+              }
+            });
+          }
+          result = await prisma.trainingRecord.findUnique({
+            where: { dcnId: id },
+            include: { attendeesList: true }
+          });
+        }
+
+        await prisma.dCN.update({
+          where: { id },
+          data: { needsTraining: true }
         });
       }
 
-      await prisma.dCN.update({
-        where: { id },
-        data: { needsTraining: true }
-      });
+      return res.json(result);
+    } catch (error: any) {
+      return res.status(500).json({ error: 'Erro ao atualizar treinamento no PostgreSQL', details: error.message });
     }
-
-    res.json(result);
-  } catch (error: any) {
-    res.status(500).json({ error: 'Failed to update training record', details: error.message });
   }
+
+  // Execução local sem PostgreSQL
+  const localDcns = loadLocalDCNs();
+  const dcn = localDcns.find(d => d.id === id || d.dcnNumber === id);
+  if (dcn) {
+    dcn.training = {
+      ...(dcn.training || {}),
+      ...trainingData
+    };
+    dcn.needsTraining = true;
+    saveLocalDCNs(localDcns);
+    return res.json(dcn.training);
+  }
+  return res.json(trainingData);
 });
 
 // Technicians Endpoints
 app.get('/api/technicians', async (_req: Request, res: Response) => {
-  try {
-    const techs = await prisma.technician.findMany({
-      orderBy: { name: 'asc' }
-    });
-    res.json(techs);
-  } catch (error: any) {
-    res.status(500).json({ error: 'Failed to fetch technicians', details: error.message });
+  if (isDatabaseConfigured) {
+    try {
+      const techs = await prisma.technician.findMany({
+        orderBy: { name: 'asc' }
+      });
+      return res.json(techs);
+    } catch (error: any) {
+      return res.status(500).json({ error: 'Erro ao listar técnicos no PostgreSQL', details: error.message });
+    }
   }
+  return res.json(loadLocalTechnicians());
 });
 
 app.post('/api/technicians', async (req: Request, res: Response) => {
-  try {
-    const data = {
-      ...req.body,
-      badge: req.body.badge || `TECH-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`,
-      shift: req.body.shift || '',
-      department: req.body.department || ''
-    };
-    const tech = await prisma.technician.create({
-      data
-    });
-    res.status(201).json(tech);
-  } catch (error: any) {
-    res.status(500).json({ error: 'Failed to create technician', details: error.message });
+  const data = {
+    ...req.body,
+    badge: req.body.badge || `TECH-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`,
+    shift: req.body.shift || '',
+    department: req.body.department || ''
+  };
+
+  if (isDatabaseConfigured) {
+    try {
+      const tech = await prisma.technician.create({ data });
+      return res.status(201).json(tech);
+    } catch (error: any) {
+      return res.status(500).json({ error: 'Erro ao cadastrar técnico no PostgreSQL', details: error.message });
+    }
   }
+
+  const localTechs = loadLocalTechnicians();
+  const newTech = {
+    id: `tech-${Date.now()}`,
+    ...data,
+    active: true,
+    createdAt: new Date().toISOString().split('T')[0]
+  };
+  localTechs.push(newTech);
+  saveLocalTechnicians(localTechs);
+  return res.status(201).json(newTech);
 });
 
 app.put('/api/technicians/:id', async (req: Request, res: Response) => {
-  try {
-    const { id } = req.params;
-    const tech = await prisma.technician.update({
-      where: { id },
-      data: req.body
-    });
-    res.json(tech);
-  } catch (error: any) {
-    res.status(500).json({ error: 'Failed to update technician', details: error.message });
+  const { id } = req.params;
+  if (isDatabaseConfigured) {
+    try {
+      const tech = await prisma.technician.update({
+        where: { id },
+        data: req.body
+      });
+      return res.json(tech);
+    } catch (error: any) {
+      return res.status(500).json({ error: 'Erro ao atualizar técnico no PostgreSQL', details: error.message });
+    }
   }
+
+  const localTechs = loadLocalTechnicians();
+  const idx = localTechs.findIndex(t => t.id === id);
+  if (idx !== -1) {
+    localTechs[idx] = { ...localTechs[idx], ...req.body };
+    saveLocalTechnicians(localTechs);
+    return res.json(localTechs[idx]);
+  }
+  return res.json({ id, ...req.body });
 });
 
 app.delete('/api/technicians/:id', async (req: Request, res: Response) => {
-  try {
-    const { id } = req.params;
-    await prisma.technician.delete({ where: { id } });
-    res.json({ success: true });
-  } catch (error: any) {
-    res.status(500).json({ error: 'Failed to delete technician', details: error.message });
+  const { id } = req.params;
+  if (isDatabaseConfigured) {
+    try {
+      await prisma.technician.delete({ where: { id } });
+      return res.json({ success: true });
+    } catch (error: any) {
+      return res.status(500).json({ error: 'Erro ao excluir técnico no PostgreSQL', details: error.message });
+    }
   }
+
+  const localTechs = loadLocalTechnicians().filter(t => t.id !== id);
+  saveLocalTechnicians(localTechs);
+  return res.json({ success: true });
 });
 
 // ==========================================
@@ -1123,8 +1523,11 @@ app.post('/api/dcns/:id/attachments', upload.single('file'), async (req: Request
       url: `/api/attachments/${localFileName}/file`
     };
 
-    try {
-      if (dcn) {
+    if (isDatabaseConfigured) {
+      if (!dcn) {
+        return res.status(404).json({ error: 'DCN não encontrada no banco de dados' });
+      }
+      try {
         const attachment = await prisma.dCNAttachment.create({
           data: newAttachment
         });
@@ -1143,6 +1546,29 @@ app.post('/api/dcns/:id/attachments', upload.single('file'), async (req: Request
           }
         });
         return res.status(201).json(attachment);
+      } catch (error: any) {
+        console.error('[Upload Anexo] Erro PostgreSQL:', error);
+        return res.status(500).json({ error: 'Falha ao processar upload do anexo no PostgreSQL', details: error.message });
+      }
+    }
+
+    // Sincronizar em contingência local (desenvolvimento offline)
+    try {
+      const localDcns = loadLocalDCNs();
+      const target = localDcns.find(d => d.id === id || d.dcnNumber === id);
+      if (target) {
+        target.attachments = target.attachments || [];
+        target.attachments.unshift(newAttachment);
+        target.auditTrail = target.auditTrail || [];
+        target.auditTrail.unshift({
+          id: `aud-${Date.now()}`,
+          timestamp: new Date().toISOString().replace('T', ' ').slice(0, 16),
+          user: uploadedBy,
+          userRole: 'Engenheiro Responsável',
+          action: 'Anexo Adicionado',
+          comment: `Arquivo "${file.originalname}" (${formatFileSize(file.size)}) adicionado aos anexos.`
+        });
+        saveLocalDCNs(localDcns);
       }
     } catch {}
 
@@ -1287,52 +1713,60 @@ app.get('/api/attachments/:id/file', async (req: Request, res: Response) => {
 
 // Exclusão de anexo no MinIO e no banco de dados
 app.delete('/api/dcns/:id/attachments/:attachmentId', async (req: Request, res: Response) => {
-  try {
-    const { id, attachmentId } = req.params;
-    const user = (req.query.user as string) || 'Engenharia';
+  const { id, attachmentId } = req.params;
+  const user = (req.query.user as string) || 'Engenharia';
 
-    const attachment = await prisma.dCNAttachment.findUnique({
-      where: { id: attachmentId }
-    });
+  if (isDatabaseConfigured) {
+    try {
+      const attachment = await prisma.dCNAttachment.findUnique({
+        where: { id: attachmentId }
+      });
 
-    if (!attachment) {
-      return res.status(404).json({ error: 'Anexo não encontrado.' });
-    }
+      if (attachment) {
+        if (attachment.objectKey) {
+          await deleteFileFromMinio(attachment.objectKey).catch(() => {});
+        }
 
-    // Excluir objeto do MinIO se houver chave associada
-    if (attachment.objectKey) {
-      await deleteFileFromMinio(attachment.objectKey);
-    }
+        await prisma.dCNAttachment.delete({
+          where: { id: attachmentId }
+        });
 
-    // Excluir registro do Prisma
-    await prisma.dCNAttachment.delete({
-      where: { id: attachmentId }
-    });
-
-    // Auditoria
-    await prisma.auditLogEntry.create({
-      data: {
-        dcnId: id,
-        timestamp: new Date().toISOString(),
-        user: user,
-        userRole: 'Engenheiro Responsável',
-        action: 'Anexo Removido',
-        comment: `Arquivo "${attachment.name}" removido do MinIO e do sistema.`
+        await prisma.auditLogEntry.create({
+          data: {
+            dcnId: id,
+            timestamp: new Date().toISOString(),
+            user: user,
+            userRole: 'Engenheiro Responsável',
+            action: 'Anexo Removido',
+            comment: `Arquivo "${attachment.name}" removido do MinIO e do sistema.`
+          }
+        });
       }
-    });
-
-    res.json({ success: true, message: 'Anexo excluído com sucesso.' });
-  } catch (error: any) {
-    console.error('[Exclusão Anexo MinIO] Erro:', error);
-    res.status(500).json({ error: 'Falha ao remover anexo', details: error.message });
+      return res.json({ success: true, message: 'Anexo excluído com sucesso do PostgreSQL.' });
+    } catch (error: any) {
+      console.error('[Exclusão Anexo PostgreSQL] Erro:', error);
+      return res.status(500).json({ error: 'Erro ao excluir anexo no PostgreSQL', details: error.message });
+    }
   }
+
+  // Fallback offline (desenvolvimento local)
+  try {
+    const localDcns = loadLocalDCNs();
+    const target = localDcns.find(d => d.id === id || d.dcnNumber === id);
+    if (target && target.attachments) {
+      target.attachments = target.attachments.filter((a: any) => a.id !== attachmentId);
+      saveLocalDCNs(localDcns);
+    }
+  } catch {}
+
+  return res.json({ success: true, message: 'Anexo excluído com sucesso.' });
 });
 
 // ==========================================
 // Serviço de Notificações Recorrentes
 // ==========================================
-let notificationSettingsMemory: NotificationSettings = { ...DEFAULT_NOTIFICATION_SETTINGS };
-let notificationLogsMemory: NotificationLogEntry[] = [];
+let notificationSettingsMemory: NotificationSettings = loadLocalNotificationSettings();
+let notificationLogsMemory: NotificationLogEntry[] = loadLocalNotificationLogs();
 const lastExecutedRuleDate: Record<string, string> = {};
 
 app.get('/api/notifications/settings', (_req: Request, res: Response) => {
@@ -1344,6 +1778,7 @@ app.put('/api/notifications/settings', (req: Request, res: Response) => {
     ...notificationSettingsMemory,
     ...req.body
   };
+  saveLocalNotificationSettings(notificationSettingsMemory);
   res.json(notificationSettingsMemory);
 });
 
@@ -1354,6 +1789,7 @@ app.get('/api/notifications/logs', (_req: Request, res: Response) => {
 
 app.delete('/api/notifications/logs', (_req: Request, res: Response) => {
   notificationLogsMemory = [];
+  saveLocalNotificationLogs(notificationLogsMemory);
   res.json({ success: true, message: 'Histórico de notificações limpo com sucesso.' });
 });
 
@@ -1388,6 +1824,11 @@ async function sendDCNClosureNotification(
 
     if (!fullDcn && clientDcn) {
       fullDcn = clientDcn;
+    }
+
+    if (!fullDcn && !isDatabaseConfigured) {
+      const local = loadLocalDCNs().find(d => d.id === dcnId || d.dcnNumber === dcnId);
+      if (local) fullDcn = local;
     }
 
     if (!fullDcn) {
@@ -1626,6 +2067,7 @@ async function sendDCNClosureNotification(
       htmlPreview: html
     };
     notificationLogsMemory = [closureLog, ...notificationLogsMemory.filter(l => l.dcnCount && l.dcnCount > 0)].slice(0, 100);
+    saveLocalNotificationLogs(notificationLogsMemory);
 
     // 6. Trilha de Auditoria (protegido se DB offline)
     try {
@@ -1703,6 +2145,7 @@ app.post('/api/notifications/trigger', async (req: Request, res: Response) => {
     status: smtpSent ? 'ENVIADO_SMTP' : entry.status
   };
   notificationLogsMemory = [savedEntry, ...notificationLogsMemory.filter(l => l.dcnCount && l.dcnCount > 0)].slice(0, 100);
+  saveLocalNotificationLogs(notificationLogsMemory);
   console.log(
     `[Notification Service] Disparo (${savedEntry.triggerMode}): "${savedEntry.subject}" -> [${savedEntry.recipients.join(', ')}] (${savedEntry.dcnCount} DCNs)`
   );
@@ -1734,17 +2177,22 @@ app.post('/api/notifications/test-smtp', async (req: Request, res: Response) => 
   let dcnsList: any[] = Array.isArray(req.body?.dcns) ? req.body.dcns : [];
   if (dcnsList.length === 0) {
     try {
-      dcnsList = await prisma.dCN.findMany({
-        include: {
-          materials: true,
-          training: { include: { attendeesList: true } },
-          attachments: true,
-          auditTrail: true,
-          implementationChecklist: true
-        }
-      });
+      if (process.env.DATABASE_URL) {
+        dcnsList = await prisma.dCN.findMany({
+          include: {
+            materials: true,
+            training: { include: { attendeesList: true } },
+            attachments: true,
+            auditTrail: true,
+            implementationChecklist: true
+          }
+        });
+      }
     } catch {
       dcnsList = [];
+    }
+    if (!isDatabaseConfigured && (!dcnsList || dcnsList.length === 0)) {
+      dcnsList = loadLocalDCNs();
     }
   }
 
@@ -1779,11 +2227,16 @@ setInterval(async () => {
 
       let dcnsList: any[] = [];
       try {
-        dcnsList = await prisma.dCN.findMany({
-          include: { materials: true, training: { include: { attendeesList: true } }, attachments: true }
-        });
+        if (process.env.DATABASE_URL) {
+          dcnsList = await prisma.dCN.findMany({
+            include: { materials: true, training: { include: { attendeesList: true } }, attachments: true }
+          });
+        }
       } catch {
         dcnsList = [];
+      }
+      if (!isDatabaseConfigured && (!dcnsList || dcnsList.length === 0)) {
+        dcnsList = loadLocalDCNs();
       }
 
       // Validação: não envia e-mail se não houver DCNs elegíveis (não encerradas / com SLA vencido)
@@ -1815,6 +2268,7 @@ setInterval(async () => {
         }
       }
       notificationLogsMemory = [entry, ...notificationLogsMemory.filter(l => l.dcnCount && l.dcnCount > 0)].slice(0, 100);
+      saveLocalNotificationLogs(notificationLogsMemory);
       console.log(`[Scheduler Recorrente] Executado ${ruleKey} às ${currentHHMM}: ${entry.subject} (${entry.dcnCount} DCNs)`);
     };
 

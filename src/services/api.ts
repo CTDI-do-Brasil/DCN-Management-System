@@ -239,8 +239,7 @@ export const api = {
     }
   },
 
-  async checkHealth(): Promise<{ status: string; database: string }> {
-
+  async checkHealth(): Promise<{ status: string; database: string; storageMode?: string }> {
     const res = await fetch(`${API_BASE}/health`);
     return handleResponse(res);
   },
@@ -417,23 +416,29 @@ export const api = {
     try {
       const res = await fetch(`${API_BASE}/notifications/settings`);
       const data = await handleResponse<NotificationSettings>(res);
-      localStorage.setItem(LOCAL_NOTIF_SETTINGS_KEY, JSON.stringify(data));
+      if (!import.meta.env.PROD) {
+        localStorage.setItem(LOCAL_NOTIF_SETTINGS_KEY, JSON.stringify(data));
+      }
       return data;
     } catch {
-      try {
-        const raw = localStorage.getItem(LOCAL_NOTIF_SETTINGS_KEY);
-        if (raw) {
-          return { ...DEFAULT_NOTIFICATION_SETTINGS, ...JSON.parse(raw) };
+      if (!import.meta.env.PROD) {
+        try {
+          const raw = localStorage.getItem(LOCAL_NOTIF_SETTINGS_KEY);
+          if (raw) {
+            return { ...DEFAULT_NOTIFICATION_SETTINGS, ...JSON.parse(raw) };
+          }
+        } catch {
+          // ignore
         }
-      } catch {
-        // ignore
       }
       return { ...DEFAULT_NOTIFICATION_SETTINGS };
     }
   },
 
   async saveNotificationSettings(settings: NotificationSettings): Promise<NotificationSettings> {
-    localStorage.setItem(LOCAL_NOTIF_SETTINGS_KEY, JSON.stringify(settings));
+    if (!import.meta.env.PROD) {
+      localStorage.setItem(LOCAL_NOTIF_SETTINGS_KEY, JSON.stringify(settings));
+    }
     try {
       const res = await fetch(`${API_BASE}/notifications/settings`, {
         method: 'PUT',
@@ -451,17 +456,21 @@ export const api = {
       const res = await fetch(`${API_BASE}/notifications/logs`);
       const logs = await handleResponse<NotificationLogEntry[]>(res);
       const validLogs = (Array.isArray(logs) ? logs : []).filter(l => l.dcnCount && l.dcnCount > 0);
-      localStorage.setItem(LOCAL_NOTIF_LOGS_KEY, JSON.stringify(validLogs));
+      if (!import.meta.env.PROD) {
+        localStorage.setItem(LOCAL_NOTIF_LOGS_KEY, JSON.stringify(validLogs));
+      }
       return validLogs;
     } catch {
-      try {
-        const raw = localStorage.getItem(LOCAL_NOTIF_LOGS_KEY);
-        if (raw) {
-          const parsed = JSON.parse(raw);
-          return (Array.isArray(parsed) ? parsed : []).filter(l => l.dcnCount && l.dcnCount > 0);
+      if (!import.meta.env.PROD) {
+        try {
+          const raw = localStorage.getItem(LOCAL_NOTIF_LOGS_KEY);
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            return (Array.isArray(parsed) ? parsed : []).filter(l => l.dcnCount && l.dcnCount > 0);
+          }
+        } catch {
+          // ignore
         }
-      } catch {
-        // ignore
       }
       return [];
     }
@@ -473,7 +482,9 @@ export const api = {
     } catch {
       // ignore
     }
-    localStorage.removeItem(LOCAL_NOTIF_LOGS_KEY);
+    try {
+      localStorage.removeItem(LOCAL_NOTIF_LOGS_KEY);
+    } catch {}
   },
 
   async triggerNotification(params: {
@@ -511,20 +522,24 @@ export const api = {
       });
       const saved = await handleResponse<NotificationLogEntry>(res);
       if (saved && saved.dcnCount > 0 && !saved.skipped) {
-        const currentLogs = await this.getNotificationLogs();
-        localStorage.setItem(LOCAL_NOTIF_LOGS_KEY, JSON.stringify([saved, ...currentLogs.filter(l => l.id !== saved.id && l.dcnCount > 0)].slice(0, 100)));
+        if (!import.meta.env.PROD) {
+          const currentLogs = await this.getNotificationLogs();
+          localStorage.setItem(LOCAL_NOTIF_LOGS_KEY, JSON.stringify([saved, ...currentLogs.filter(l => l.id !== saved.id && l.dcnCount > 0)].slice(0, 100)));
+        }
       }
       return saved;
     } catch {
-      try {
-        if (entry.dcnCount > 0) {
-          const raw = localStorage.getItem(LOCAL_NOTIF_LOGS_KEY);
-          const existing: NotificationLogEntry[] = raw ? JSON.parse(raw) : [];
-          const updated = [entry, ...existing.filter(l => l.dcnCount > 0)].slice(0, 100);
-          localStorage.setItem(LOCAL_NOTIF_LOGS_KEY, JSON.stringify(updated));
+      if (!import.meta.env.PROD) {
+        try {
+          if (entry.dcnCount > 0) {
+            const raw = localStorage.getItem(LOCAL_NOTIF_LOGS_KEY);
+            const existing: NotificationLogEntry[] = raw ? JSON.parse(raw) : [];
+            const updated = [entry, ...existing.filter(l => l.dcnCount > 0)].slice(0, 100);
+            localStorage.setItem(LOCAL_NOTIF_LOGS_KEY, JSON.stringify(updated));
+          }
+        } catch {
+          // ignore
         }
-      } catch {
-        // ignore
       }
       return entry;
     }
