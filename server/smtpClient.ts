@@ -137,6 +137,8 @@ export async function sendSmtpEmail(options: SendMailOptions): Promise<{ sent: b
 
         await sendCmd('DATA', [354]);
 
+        const domain = fromEnvelope.includes('@') ? fromEnvelope.split('@')[1] : 'ctdibrasil.com.br';
+        const messageId = `<${Date.now()}.${Math.random().toString(36).substring(2, 10)}@${domain}>`;
         const encodedSubject = `=?UTF-8?B?${Buffer.from(subject, 'utf8').toString('base64')}?=`;
         const headerLines = [
           `From: ${fromHeader}`,
@@ -145,6 +147,13 @@ export async function sendSmtpEmail(options: SendMailOptions): Promise<{ sent: b
         if (ccRecipients.length > 0) {
           headerLines.push(`Cc: ${ccRecipients.join(', ')}`);
         }
+        headerLines.push(`Subject: ${encodedSubject}`);
+        headerLines.push(`Date: ${new Date().toUTCString()}`);
+        headerLines.push(`Message-ID: ${messageId}`);
+        headerLines.push(`Reply-To: ${fromHeader}`);
+        headerLines.push(`X-Mailer: CTDI DCN Management System`);
+        headerLines.push(`Auto-Submitted: auto-generated`);
+        headerLines.push(`MIME-Version: 1.0`);
 
         const hasAttachments = attachments && attachments.length > 0;
         let messagePayload = '';
@@ -174,10 +183,7 @@ export async function sendSmtpEmail(options: SendMailOptions): Promise<{ sent: b
 
           const boundary = `----=_Part_${Date.now()}_${Math.random().toString(36).substring(2, 10)}`;
           headerLines.push(
-            `Subject: ${encodedSubject}`,
-            `MIME-Version: 1.0`,
             `Content-Type: multipart/mixed; boundary="${boundary}"`,
-            `Date: ${new Date().toUTCString()}`,
             ``
           );
           const messageHeaders = headerLines.join('\r\n');
@@ -204,11 +210,8 @@ export async function sendSmtpEmail(options: SendMailOptions): Promise<{ sent: b
         } else {
           console.log(`[SMTP Client] Enviando e-mail sem anexos (text/html).`);
           headerLines.push(
-            `Subject: ${encodedSubject}`,
-            `MIME-Version: 1.0`,
             `Content-Type: text/html; charset=UTF-8`,
             `Content-Transfer-Encoding: base64`,
-            `Date: ${new Date().toUTCString()}`,
             ``
           );
           const messageHeaders = headerLines.join('\r\n');
@@ -230,9 +233,10 @@ export async function sendSmtpEmail(options: SendMailOptions): Promise<{ sent: b
         }
 
         clearTimeout(timeout);
+        const serverDetail = (dataResp.text || '').replace(/\r?\n/g, ' ').trim();
         finish(
           true,
-          `E-mail enviado via SMTP (${host}:${port}) para: ${toRecipients.join(', ')}${
+          `E-mail aceito pelo servidor SMTP (${host}:${port}) - Resposta: "${serverDetail}". Destinatários: ${toRecipients.join(', ')}${
             ccRecipients.length > 0 ? ` [Cc: ${ccRecipients.join(', ')}]` : ''
           }${hasAttachments ? ` [${attachments.length} anexo(s)]` : ''}`
         );

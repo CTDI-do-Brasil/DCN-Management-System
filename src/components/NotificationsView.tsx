@@ -1095,6 +1095,19 @@ export const NotificationsView: React.FC<NotificationsViewProps> = () => {
                 </p>
               </div>
 
+              <div className="p-3 bg-amber-50/70 border border-amber-200 rounded-xl text-[11px] text-amber-900 space-y-1">
+                <p className="font-bold flex items-center gap-1 text-amber-900">
+                  <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
+                  Dica de Entrega para E-mails Corporativos (ex: @ctdi.com):
+                </p>
+                <p>
+                  • <strong>Senha da Conta:</strong> Para que o Poste.io autorize o encaminhamento externo (relay para @ctdi.com), preencha o campo <strong>Senha da Conta de E-mail</strong> abaixo.
+                </p>
+                <p>
+                  • <strong>Lixo Eletrônico:</strong> Se o relatório foi marcado como entregue mas não apareceu na Caixa de Entrada, verifique a pasta <strong>Lixo Eletrônico (Spam)</strong> do seu Outlook.
+                </p>
+              </div>
+
               {smtpTestFeedback && (
                 <div
                   className={`p-3 rounded-xl border text-xs font-semibold flex items-center justify-between ${
