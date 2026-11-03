@@ -192,6 +192,147 @@ function saveLocalNotificationLogs(logs: NotificationLogEntry[]): void {
   }
 }
 
+async function ensureSystemSettingsTable(): Promise<void> {
+  if (!isDatabaseConfigured) return;
+  try {
+    await prisma.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS "system_settings" (
+        "key" TEXT PRIMARY KEY,
+        "value" JSONB NOT NULL,
+        "updatedAt" TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+      );
+    `);
+  } catch (err: any) {
+    console.warn('[Persistence] ensureSystemSettingsTable aviso:', err.message);
+  }
+}
+
+async function loadNotificationSettingsFromDB(): Promise<NotificationSettings | null> {
+  if (!isDatabaseConfigured) return null;
+  try {
+    if ((prisma as any).systemSetting) {
+      const record = await (prisma as any).systemSetting.findUnique({
+        where: { key: 'notification_settings' }
+      });
+      if (record && record.value) {
+        const val = typeof record.value === 'string' ? JSON.parse(record.value) : record.value;
+        return { ...DEFAULT_NOTIFICATION_SETTINGS, ...val };
+      }
+    }
+  } catch (e: any) {
+    try {
+      const rows: any[] = await prisma.$queryRawUnsafe(
+        `SELECT "value" FROM "system_settings" WHERE "key" = 'notification_settings' LIMIT 1;`
+      );
+      if (rows && rows.length > 0 && rows[0]?.value) {
+        const val = typeof rows[0].value === 'string' ? JSON.parse(rows[0].value) : rows[0].value;
+        return { ...DEFAULT_NOTIFICATION_SETTINGS, ...val };
+      }
+    } catch {}
+  }
+  return null;
+}
+
+async function saveNotificationSettingsToDB(settings: NotificationSettings): Promise<void> {
+  if (!isDatabaseConfigured) return;
+  try {
+    if ((prisma as any).systemSetting) {
+      await (prisma as any).systemSetting.upsert({
+        where: { key: 'notification_settings' },
+        create: {
+          key: 'notification_settings',
+          value: settings as any,
+          updatedAt: new Date()
+        },
+        update: {
+          value: settings as any,
+          updatedAt: new Date()
+        }
+      });
+      return;
+    }
+  } catch (e: any) {
+    try {
+      const jsonStr = JSON.stringify(settings);
+      await prisma.$executeRawUnsafe(
+        `INSERT INTO "system_settings" ("key", "value", "updatedAt")
+         VALUES ('notification_settings', $1::jsonb, NOW())
+         ON CONFLICT ("key") DO UPDATE
+         SET "value" = EXCLUDED."value", "updatedAt" = NOW();`,
+        jsonStr
+      );
+      return;
+    } catch (rawErr: any) {
+      console.error('[Persistence] Erro ao salvar notification_settings no PostgreSQL:', rawErr.message);
+    }
+  }
+}
+
+async function loadNotificationLogsFromDB(): Promise<NotificationLogEntry[] | null> {
+  if (!isDatabaseConfigured) return null;
+  try {
+    if ((prisma as any).systemSetting) {
+      const record = await (prisma as any).systemSetting.findUnique({
+        where: { key: 'notification_logs' }
+      });
+      if (record && record.value) {
+        const val = typeof record.value === 'string' ? JSON.parse(record.value) : record.value;
+        if (Array.isArray(val)) {
+          return val.filter((l: NotificationLogEntry) => l.dcnCount && l.dcnCount > 0);
+        }
+      }
+    }
+  } catch (e: any) {
+    try {
+      const rows: any[] = await prisma.$queryRawUnsafe(
+        `SELECT "value" FROM "system_settings" WHERE "key" = 'notification_logs' LIMIT 1;`
+      );
+      if (rows && rows.length > 0 && rows[0]?.value) {
+        const val = typeof rows[0].value === 'string' ? JSON.parse(rows[0].value) : rows[0].value;
+        if (Array.isArray(val)) {
+          return val.filter((l: NotificationLogEntry) => l.dcnCount && l.dcnCount > 0);
+        }
+      }
+    } catch {}
+  }
+  return null;
+}
+
+async function saveNotificationLogsToDB(logs: NotificationLogEntry[]): Promise<void> {
+  if (!isDatabaseConfigured) return;
+  const filtered = logs.filter(l => l.dcnCount && l.dcnCount > 0).slice(0, 100);
+  try {
+    if ((prisma as any).systemSetting) {
+      await (prisma as any).systemSetting.upsert({
+        where: { key: 'notification_logs' },
+        create: {
+          key: 'notification_logs',
+          value: filtered as any,
+          updatedAt: new Date()
+        },
+        update: {
+          value: filtered as any,
+          updatedAt: new Date()
+        }
+      });
+      return;
+    }
+  } catch (e: any) {
+    try {
+      const jsonStr = JSON.stringify(filtered);
+      await prisma.$executeRawUnsafe(
+        `INSERT INTO "system_settings" ("key", "value", "updatedAt")
+         VALUES ('notification_logs', $1::jsonb, NOW())
+         ON CONFLICT ("key") DO UPDATE
+         SET "value" = EXCLUDED."value", "updatedAt" = NOW();`,
+        jsonStr
+      );
+    } catch (rawErr: any) {
+      console.error('[Persistence] Erro ao salvar notification_logs no PostgreSQL:', rawErr.message);
+    }
+  }
+}
+
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
@@ -1765,27 +1906,64 @@ let notificationSettingsMemory: NotificationSettings = loadLocalNotificationSett
 let notificationLogsMemory: NotificationLogEntry[] = loadLocalNotificationLogs();
 const lastExecutedRuleDate: Record<string, string> = {};
 
-app.get('/api/notifications/settings', (_req: Request, res: Response) => {
+app.get('/api/notifications/settings', async (_req: Request, res: Response) => {
+  try {
+    if (isDatabaseConfigured) {
+      const dbSettings = await loadNotificationSettingsFromDB();
+      if (dbSettings) {
+        notificationSettingsMemory = {
+          ...DEFAULT_NOTIFICATION_SETTINGS,
+          ...notificationSettingsMemory,
+          ...dbSettings
+        };
+      }
+    }
+  } catch (err: any) {
+    console.warn('[Settings] Falha ao consultar DB:', err.message);
+  }
   res.json(notificationSettingsMemory);
 });
 
-app.put('/api/notifications/settings', (req: Request, res: Response) => {
-  notificationSettingsMemory = {
-    ...notificationSettingsMemory,
-    ...req.body
-  };
-  saveLocalNotificationSettings(notificationSettingsMemory);
-  res.json(notificationSettingsMemory);
+app.put('/api/notifications/settings', async (req: Request, res: Response) => {
+  try {
+    notificationSettingsMemory = {
+      ...DEFAULT_NOTIFICATION_SETTINGS,
+      ...notificationSettingsMemory,
+      ...req.body
+    };
+    saveLocalNotificationSettings(notificationSettingsMemory);
+    if (isDatabaseConfigured) {
+      await saveNotificationSettingsToDB(notificationSettingsMemory);
+    }
+    console.log(`[Notification Settings] Configurações persistidas com sucesso (${notificationSettingsMemory.directRecipients?.length || 0} direct, ${notificationSettingsMemory.fixedRecipients?.length || 0} cc).`);
+    res.json(notificationSettingsMemory);
+  } catch (err: any) {
+    console.error('[Settings] Erro ao salvar configurações:', err);
+    res.status(500).json({ error: 'Erro ao salvar configurações de notificação.' });
+  }
 });
 
-app.get('/api/notifications/logs', (_req: Request, res: Response) => {
+app.get('/api/notifications/logs', async (_req: Request, res: Response) => {
+  try {
+    if (isDatabaseConfigured) {
+      const dbLogs = await loadNotificationLogsFromDB();
+      if (dbLogs) {
+        notificationLogsMemory = dbLogs;
+      }
+    }
+  } catch (err: any) {
+    console.warn('[Logs] Falha ao consultar DB:', err.message);
+  }
   notificationLogsMemory = notificationLogsMemory.filter(l => l.dcnCount && l.dcnCount > 0);
   res.json(notificationLogsMemory);
 });
 
-app.delete('/api/notifications/logs', (_req: Request, res: Response) => {
+app.delete('/api/notifications/logs', async (_req: Request, res: Response) => {
   notificationLogsMemory = [];
   saveLocalNotificationLogs(notificationLogsMemory);
+  if (isDatabaseConfigured) {
+    await saveNotificationLogsToDB([]);
+  }
   res.json({ success: true, message: 'Histórico de notificações limpo com sucesso.' });
 });
 
@@ -2064,6 +2242,9 @@ async function sendDCNClosureNotification(
     };
     notificationLogsMemory = [closureLog, ...notificationLogsMemory.filter(l => l.dcnCount && l.dcnCount > 0)].slice(0, 100);
     saveLocalNotificationLogs(notificationLogsMemory);
+    if (isDatabaseConfigured) {
+      saveNotificationLogsToDB(notificationLogsMemory).catch(() => {});
+    }
 
     // 6. Trilha de Auditoria (protegido se DB offline)
     try {
@@ -2092,6 +2273,10 @@ app.post('/api/dcns/:id/notify-closure', async (req: Request, res: Response) => 
   const { user, dcn, attachmentBase64, attachmentName, attachmentType, settings, force } = req.body || {};
   if (settings) {
     notificationSettingsMemory = { ...notificationSettingsMemory, ...settings };
+    saveLocalNotificationSettings(notificationSettingsMemory);
+    if (isDatabaseConfigured) {
+      saveNotificationSettingsToDB(notificationSettingsMemory).catch(() => {});
+    }
   }
   const result = await sendDCNClosureNotification(
     id,
@@ -2107,6 +2292,10 @@ app.post('/api/notifications/trigger', async (req: Request, res: Response) => {
   const { entry, settings } = req.body;
   if (settings) {
     notificationSettingsMemory = { ...notificationSettingsMemory, ...settings };
+    saveLocalNotificationSettings(notificationSettingsMemory);
+    if (isDatabaseConfigured) {
+      saveNotificationSettingsToDB(notificationSettingsMemory).catch(() => {});
+    }
   }
   if (!entry) {
     return res.status(400).json({ error: 'Dados da notificação não informados.' });
@@ -2149,6 +2338,9 @@ app.post('/api/notifications/trigger', async (req: Request, res: Response) => {
   };
   notificationLogsMemory = [savedEntry, ...notificationLogsMemory.filter(l => l.dcnCount && l.dcnCount > 0)].slice(0, 100);
   saveLocalNotificationLogs(notificationLogsMemory);
+  if (isDatabaseConfigured) {
+    saveNotificationLogsToDB(notificationLogsMemory).catch(() => {});
+  }
   console.log(
     `[Notification Service] Disparo (${savedEntry.triggerMode}): "${savedEntry.subject}" -> [${savedEntry.recipients.join(', ')}] (${savedEntry.dcnCount} DCNs) - Status: ${savedEntry.status} (${smtpDetail})`
   );
@@ -2170,6 +2362,10 @@ app.post('/api/notifications/test-smtp', async (req: Request, res: Response) => 
     ];
   }
   notificationSettingsMemory = settings;
+  saveLocalNotificationSettings(notificationSettingsMemory);
+  if (isDatabaseConfigured) {
+    saveNotificationSettingsToDB(notificationSettingsMemory).catch(() => {});
+  }
 
   const recipients = customRecipient
     ? [customRecipient]
@@ -2272,6 +2468,9 @@ setInterval(async () => {
       }
       notificationLogsMemory = [entry, ...notificationLogsMemory.filter(l => l.dcnCount && l.dcnCount > 0)].slice(0, 100);
       saveLocalNotificationLogs(notificationLogsMemory);
+      if (isDatabaseConfigured) {
+        saveNotificationLogsToDB(notificationLogsMemory).catch(() => {});
+      }
       console.log(`[Scheduler Recorrente] Executado ${ruleKey} às ${currentHHMM}: ${entry.subject} (${entry.dcnCount} DCNs)`);
     };
 
@@ -2421,6 +2620,30 @@ async function syncDatabaseOnStartup() {
         }
         console.log(`[Startup Users] ${INITIAL_USERS.length} usuários iniciais provisionados no PostgreSQL.`);
       }
+    }
+
+    // 3. Garantir tabela de configurações do sistema e carregar configurações persistentes
+    try {
+      await ensureSystemSettingsTable();
+      const dbSettings = await loadNotificationSettingsFromDB();
+      if (dbSettings) {
+        notificationSettingsMemory = {
+          ...DEFAULT_NOTIFICATION_SETTINGS,
+          ...notificationSettingsMemory,
+          ...dbSettings
+        };
+        console.log(`[Startup Settings] Configurações de notificação carregadas do PostgreSQL (${notificationSettingsMemory.directRecipients?.length || 0} diretos, ${notificationSettingsMemory.fixedRecipients?.length || 0} cópia).`);
+      } else if (notificationSettingsMemory) {
+        await saveNotificationSettingsToDB(notificationSettingsMemory);
+        console.log('[Startup Settings] Configurações padrão sincronizadas no PostgreSQL.');
+      }
+      const dbLogs = await loadNotificationLogsFromDB();
+      if (dbLogs) {
+        notificationLogsMemory = dbLogs;
+        console.log(`[Startup Logs] ${dbLogs.length} logs de notificação carregados do PostgreSQL.`);
+      }
+    } catch (settErr: any) {
+      console.warn(`[Startup Settings] Aviso ao carregar configurações: ${settErr.message}`);
     }
   } catch (err: any) {
     console.warn(`[Startup Sync] Aviso ao sincronizar banco de dados na inicialização: ${err.message}`);

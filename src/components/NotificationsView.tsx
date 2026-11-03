@@ -46,7 +46,23 @@ interface NotificationsViewProps {
 export const NotificationsView: React.FC<NotificationsViewProps> = () => {
   const { dcns } = useDCN();
 
-  const [settings, setSettings] = useState<NotificationSettings>(DEFAULT_NOTIFICATION_SETTINGS);
+  const [settings, setSettings] = useState<NotificationSettings>(() => {
+    try {
+      const cached = localStorage.getItem('dcn_notification_settings_v1');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        return {
+          ...DEFAULT_NOTIFICATION_SETTINGS,
+          ...parsed,
+          directRecipients: Array.isArray(parsed.directRecipients) ? parsed.directRecipients : [],
+          fixedRecipients: Array.isArray(parsed.fixedRecipients) && parsed.fixedRecipients.length > 0
+            ? parsed.fixedRecipients
+            : DEFAULT_NOTIFICATION_SETTINGS.fixedRecipients
+        };
+      }
+    } catch {}
+    return DEFAULT_NOTIFICATION_SETTINGS;
+  });
   const [users, setUsers] = useState<User[]>([]);
   const [logs, setLogs] = useState<NotificationLogEntry[]>([]);
   const [selectedResponsible, setSelectedResponsible] = useState<string>('ALL');
@@ -59,7 +75,7 @@ export const NotificationsView: React.FC<NotificationsViewProps> = () => {
   const [isTriggering, setIsTriggering] = useState<string | null>(null);
   const [isTestingSmtp, setIsTestingSmtp] = useState(false);
   const [smtpTestFeedback, setSmtpTestFeedback] = useState<{ ok: boolean; msg: string } | null>(null);
-  const [feedback, setFeedback] = useState<{ type: 'success' | 'info'; message: string } | null>(null);
+  const [feedback, setFeedback] = useState<{ type: 'success' | 'info' | 'warning' | 'error'; message: string } | null>(null);
 
   // Modal de pré-visualização de e-mail HTML
   const [previewModal, setPreviewModal] = useState<{
@@ -74,21 +90,40 @@ export const NotificationsView: React.FC<NotificationsViewProps> = () => {
   const nextWeeklyExecution = useMemo(() => getNextWeeklyExecutionInfo(settings), [settings]);
 
   useEffect(() => {
+    let isMounted = true;
     const loadAll = async () => {
-      const [loadedSettings, loadedUsers, loadedLogs] = await Promise.all([
-        api.getNotificationSettings(),
-        api.getUsers(),
-        api.getNotificationLogs()
-      ]);
-      setSettings(loadedSettings);
-      const firstReal = (loadedSettings.fixedRecipients || []).find(
-        e => e !== 'engenharia@ctdi.com' && e !== 'qualidade@ctdi.com'
-      );
-      setSmtpTargetEmail(firstReal || loadedSettings.fixedRecipients?.[0] || '');
-      setUsers(loadedUsers);
-      setLogs(loadedLogs);
+      try {
+        const [loadedSettings, loadedUsers, loadedLogs] = await Promise.all([
+          api.getNotificationSettings(),
+          api.getUsers(),
+          api.getNotificationLogs()
+        ]);
+        if (!isMounted) return;
+        setSettings(prev => ({
+          ...DEFAULT_NOTIFICATION_SETTINGS,
+          ...prev,
+          ...loadedSettings,
+          directRecipients: Array.isArray(loadedSettings?.directRecipients)
+            ? loadedSettings.directRecipients
+            : (prev.directRecipients || []),
+          fixedRecipients: Array.isArray(loadedSettings?.fixedRecipients) && loadedSettings.fixedRecipients.length > 0
+            ? loadedSettings.fixedRecipients
+            : (prev.fixedRecipients || DEFAULT_NOTIFICATION_SETTINGS.fixedRecipients)
+        }));
+        const firstReal = (loadedSettings.fixedRecipients || []).find(
+          e => e !== 'engenharia@ctdi.com' && e !== 'qualidade@ctdi.com'
+        );
+        setSmtpTargetEmail(firstReal || loadedSettings.fixedRecipients?.[0] || '');
+        setUsers(loadedUsers);
+        setLogs(loadedLogs);
+      } catch (err) {
+        console.error('Erro ao carregar configurações de notificação:', err);
+      }
     };
     loadAll();
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   useEffect(() => {
@@ -119,13 +154,30 @@ export const NotificationsView: React.FC<NotificationsViewProps> = () => {
   }, [dcns, settings, selectedResponsible]);
 
   const handleSaveSettings = async (updated: NotificationSettings = settings) => {
+    let finalSettings = { ...updated };
+    const pendingDirect = newDirectRecipientEmail.trim().toLowerCase();
+    if (pendingDirect && pendingDirect.includes('@') && !(finalSettings.directRecipients || []).includes(pendingDirect)) {
+      finalSettings.directRecipients = [...(finalSettings.directRecipients || []), pendingDirect];
+      setNewDirectRecipientEmail('');
+    }
+    const pendingCopy = newRecipientEmail.trim().toLowerCase();
+    if (pendingCopy && pendingCopy.includes('@') && !(finalSettings.fixedRecipients || []).includes(pendingCopy)) {
+      finalSettings.fixedRecipients = [...(finalSettings.fixedRecipients || []), pendingCopy];
+      setNewRecipientEmail('');
+    }
+
     setIsSaving(true);
     try {
-      const saved = await api.saveNotificationSettings(updated);
+      const saved = await api.saveNotificationSettings(finalSettings);
       setSettings(saved);
       setFeedback({
         type: 'success',
-        message: 'Configurações do serviço de notificações recorrentes salvas com sucesso!'
+        message: 'Configurações e lista de destinatários salvas com sucesso no banco de dados!'
+      });
+    } catch (err: any) {
+      setFeedback({
+        type: 'error',
+        message: 'Erro ao salvar configurações: ' + (err.message || 'Falha de comunicação.')
       });
     } finally {
       setIsSaving(false);
@@ -136,13 +188,14 @@ export const NotificationsView: React.FC<NotificationsViewProps> = () => {
     e.preventDefault();
     const clean = newRecipientEmail.trim().toLowerCase();
     if (!clean || !clean.includes('@')) return;
-    if (settings.fixedRecipients.includes(clean)) {
+    const current = settings.fixedRecipients || [];
+    if (current.includes(clean)) {
       setNewRecipientEmail('');
       return;
     }
     const nextSettings: NotificationSettings = {
       ...settings,
-      fixedRecipients: [...settings.fixedRecipients, clean]
+      fixedRecipients: [...current, clean]
     };
     setSettings(nextSettings);
     setNewRecipientEmail('');
@@ -150,9 +203,10 @@ export const NotificationsView: React.FC<NotificationsViewProps> = () => {
   };
 
   const handleRemoveRecipient = (email: string) => {
+    const current = settings.fixedRecipients || [];
     const nextSettings: NotificationSettings = {
       ...settings,
-      fixedRecipients: settings.fixedRecipients.filter(r => r !== email)
+      fixedRecipients: current.filter(r => r !== email)
     };
     setSettings(nextSettings);
     handleSaveSettings(nextSettings);
@@ -177,9 +231,10 @@ export const NotificationsView: React.FC<NotificationsViewProps> = () => {
   };
 
   const handleRemoveDirectRecipient = (email: string) => {
+    const current = settings.directRecipients || [];
     const nextSettings: NotificationSettings = {
       ...settings,
-      directRecipients: (settings.directRecipients || []).filter(r => r !== email)
+      directRecipients: current.filter(r => r !== email)
     };
     setSettings(nextSettings);
     handleSaveSettings(nextSettings);
@@ -370,6 +425,17 @@ export const NotificationsView: React.FC<NotificationsViewProps> = () => {
         <div className="flex flex-wrap items-center gap-2.5">
           <button
             type="button"
+            onClick={() => handleSaveSettings()}
+            disabled={isSaving}
+            className="inline-flex items-center px-4 py-2 rounded-xl text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 transition-colors shadow-xs cursor-pointer disabled:opacity-60"
+            title="Salvar todas as configurações e listas de destinatários no banco de dados"
+          >
+            <Save className="w-3.5 h-3.5 mr-1.5" />
+            {isSaving ? 'Salvando...' : 'Salvar Configurações'}
+          </button>
+
+          <button
+            type="button"
             onClick={() => setShowSmtpConfig(true)}
             className="inline-flex items-center px-3.5 py-2 rounded-xl text-xs font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 transition-colors cursor-pointer"
           >
@@ -391,12 +457,26 @@ export const NotificationsView: React.FC<NotificationsViewProps> = () => {
 
       {/* Feedback Banner */}
       {feedback && (
-        <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-semibold flex items-center justify-between">
+        <div className={`p-3.5 rounded-xl border text-xs font-semibold flex items-center justify-between ${
+          feedback.type === 'error'
+            ? 'bg-rose-50 border-rose-200 text-rose-800'
+            : feedback.type === 'warning'
+            ? 'bg-amber-50 border-amber-200 text-amber-800'
+            : feedback.type === 'info'
+            ? 'bg-sky-50 border-sky-200 text-sky-800'
+            : 'bg-emerald-50 border-emerald-200 text-emerald-800'
+        }`}>
           <div className="flex items-center space-x-2">
-            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+            {feedback.type === 'error' ? (
+              <X className="w-4 h-4 text-rose-600 shrink-0" />
+            ) : feedback.type === 'warning' ? (
+              <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+            ) : (
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+            )}
             <span>{feedback.message}</span>
           </div>
-          <button onClick={() => setFeedback(null)} className="text-emerald-600 hover:text-emerald-900">
+          <button onClick={() => setFeedback(null)} className="text-slate-500 hover:text-slate-900 cursor-pointer">
             <X className="w-4 h-4" />
           </button>
         </div>
@@ -914,7 +994,7 @@ export const NotificationsView: React.FC<NotificationsViewProps> = () => {
               </p>
             </div>
             <span className="text-[11px] font-bold text-indigo-700 bg-indigo-50 px-2.5 py-0.5 rounded-full border border-indigo-200">
-              {settings.fixedRecipients.length} no Cc
+              {(settings.fixedRecipients || []).length} no Cc
             </span>
           </div>
 
@@ -936,7 +1016,7 @@ export const NotificationsView: React.FC<NotificationsViewProps> = () => {
           </form>
 
           <div className="flex flex-wrap gap-2 pt-1">
-            {settings.fixedRecipients.map(email => (
+            {(settings.fixedRecipients || []).map(email => (
               <span
                 key={email}
                 className="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-indigo-50 text-indigo-800 border border-indigo-200"
@@ -1123,9 +1203,10 @@ export const NotificationsView: React.FC<NotificationsViewProps> = () => {
                     setIsTestingSmtp(true);
                     setSmtpTestFeedback(null);
                     try {
+                      const currentFixed = settings.fixedRecipients || [];
                       const updatedRecipients = [
                         cleanTarget,
-                        ...settings.fixedRecipients.filter(
+                        ...currentFixed.filter(
                           r => r !== cleanTarget && r !== 'engenharia@ctdi.com' && r !== 'qualidade@ctdi.com'
                         )
                       ];
@@ -1160,15 +1241,16 @@ export const NotificationsView: React.FC<NotificationsViewProps> = () => {
                     type="button"
                     onClick={async () => {
                       const cleanTarget = smtpTargetEmail.trim().toLowerCase();
+                      const currentFixed = settings.fixedRecipients || [];
                       const updatedRecipients =
                         cleanTarget && cleanTarget.includes('@')
                           ? [
                               cleanTarget,
-                              ...settings.fixedRecipients.filter(
+                              ...currentFixed.filter(
                                 r => r !== cleanTarget && r !== 'engenharia@ctdi.com' && r !== 'qualidade@ctdi.com'
                               )
                             ]
-                          : settings.fixedRecipients;
+                          : currentFixed;
                       const nextSettings = { ...settings, fixedRecipients: updatedRecipients };
                       setSettings(nextSettings);
                       await handleSaveSettings(nextSettings);

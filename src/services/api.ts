@@ -416,36 +416,36 @@ export const api = {
     try {
       const res = await fetch(`${API_BASE}/notifications/settings`);
       const data = await handleResponse<NotificationSettings>(res);
-      if (!import.meta.env.PROD) {
+      try {
         localStorage.setItem(LOCAL_NOTIF_SETTINGS_KEY, JSON.stringify(data));
-      }
+      } catch {}
       return data;
     } catch {
-      if (!import.meta.env.PROD) {
-        try {
-          const raw = localStorage.getItem(LOCAL_NOTIF_SETTINGS_KEY);
-          if (raw) {
-            return { ...DEFAULT_NOTIFICATION_SETTINGS, ...JSON.parse(raw) };
-          }
-        } catch {
-          // ignore
+      try {
+        const raw = localStorage.getItem(LOCAL_NOTIF_SETTINGS_KEY);
+        if (raw) {
+          return { ...DEFAULT_NOTIFICATION_SETTINGS, ...JSON.parse(raw) };
         }
-      }
+      } catch {}
       return { ...DEFAULT_NOTIFICATION_SETTINGS };
     }
   },
 
   async saveNotificationSettings(settings: NotificationSettings): Promise<NotificationSettings> {
-    if (!import.meta.env.PROD) {
+    try {
       localStorage.setItem(LOCAL_NOTIF_SETTINGS_KEY, JSON.stringify(settings));
-    }
+    } catch {}
     try {
       const res = await fetch(`${API_BASE}/notifications/settings`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(settings)
       });
-      return await handleResponse<NotificationSettings>(res);
+      const data = await handleResponse<NotificationSettings>(res);
+      try {
+        localStorage.setItem(LOCAL_NOTIF_SETTINGS_KEY, JSON.stringify(data));
+      } catch {}
+      return data;
     } catch {
       return settings;
     }
@@ -456,22 +456,18 @@ export const api = {
       const res = await fetch(`${API_BASE}/notifications/logs`);
       const logs = await handleResponse<NotificationLogEntry[]>(res);
       const validLogs = (Array.isArray(logs) ? logs : []).filter(l => l.dcnCount && l.dcnCount > 0);
-      if (!import.meta.env.PROD) {
+      try {
         localStorage.setItem(LOCAL_NOTIF_LOGS_KEY, JSON.stringify(validLogs));
-      }
+      } catch {}
       return validLogs;
     } catch {
-      if (!import.meta.env.PROD) {
-        try {
-          const raw = localStorage.getItem(LOCAL_NOTIF_LOGS_KEY);
-          if (raw) {
-            const parsed = JSON.parse(raw);
-            return (Array.isArray(parsed) ? parsed : []).filter(l => l.dcnCount && l.dcnCount > 0);
-          }
-        } catch {
-          // ignore
+      try {
+        const raw = localStorage.getItem(LOCAL_NOTIF_LOGS_KEY);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          return (Array.isArray(parsed) ? parsed : []).filter(l => l.dcnCount && l.dcnCount > 0);
         }
-      }
+      } catch {}
       return [];
     }
   },
