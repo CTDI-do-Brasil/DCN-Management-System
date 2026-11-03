@@ -124,10 +124,15 @@ export async function sendSmtpEmail(options: SendMailOptions): Promise<{ sent: b
         }
 
         // Autenticação AUTH LOGIN se usuário e senha foram preenchidos
+        let isAuthenticated = false;
         if (user && pass) {
           await sendCmd('AUTH LOGIN', [334]);
           await sendCmd(Buffer.from(user, 'utf8').toString('base64'), [334]);
           await sendCmd(Buffer.from(pass, 'utf8').toString('base64'), [235]);
+          isAuthenticated = true;
+          console.log(`[SMTP Client] Autenticação AUTH LOGIN bem-sucedida para "${user}".`);
+        } else if (user && !pass) {
+          console.warn(`[SMTP Client] AVISO: Usuário SMTP "${user}" configurado, porém SENHA ESTÁ VAZIA. Envio realizado sem autenticação.`);
         }
 
         await sendCmd(`MAIL FROM:<${fromEnvelope}>`, [250]);
@@ -234,9 +239,14 @@ export async function sendSmtpEmail(options: SendMailOptions): Promise<{ sent: b
 
         clearTimeout(timeout);
         const serverDetail = (dataResp.text || '').replace(/\r?\n/g, ' ').trim();
+        const authStatus = isAuthenticated
+          ? ' (Autenticado)'
+          : user
+          ? ' (AVISO: Sem senha / Não autenticado - preencha a Senha da Conta no SMTP para entrega em @ctdi.com)'
+          : '';
         finish(
           true,
-          `E-mail aceito pelo servidor SMTP (${host}:${port}) - Resposta: "${serverDetail}". Destinatários: ${toRecipients.join(', ')}${
+          `E-mail aceito pelo servidor SMTP (${host}:${port})${authStatus} - Servidor: "${serverDetail}". Destinatários: ${toRecipients.join(', ')}${
             ccRecipients.length > 0 ? ` [Cc: ${ccRecipients.join(', ')}]` : ''
           }${hasAttachments ? ` [${attachments.length} anexo(s)]` : ''}`
         );
