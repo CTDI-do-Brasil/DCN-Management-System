@@ -18,7 +18,9 @@ import {
   ShieldCheck,
   Server,
   Copy,
-  Check
+  Check,
+  Download,
+  ExternalLink
 } from 'lucide-react';
 import { useDCN } from '../context/DCNContext';
 import { api } from '../services/api';
@@ -116,6 +118,48 @@ export const NotificationsView: React.FC<NotificationsViewProps> = () => {
       setTimeout(() => setCopiedHtml(false), 3000);
     } catch (err) {
       console.error('Falha ao copiar:', err);
+    }
+  };
+
+  const handleDownloadOutlookEml = (
+    subject: string,
+    to: string[],
+    cc: string[] = [],
+    htmlBody: string
+  ) => {
+    try {
+      // Codificação RFC 2047 Base64 para garantir acentos perfeitos no assunto no Outlook
+      const utf8Bytes = new TextEncoder().encode(subject);
+      let binary = '';
+      utf8Bytes.forEach(b => (binary += String.fromCharCode(b)));
+      const encodedSubject = `=?UTF-8?B?${btoa(binary)}?=`;
+
+      const emlLines: string[] = [
+        `To: ${to.join(', ')}`,
+        ...(cc && cc.length > 0 ? [`Cc: ${cc.join(', ')}`] : []),
+        `Subject: ${encodedSubject}`,
+        `X-Unsent: 1`,
+        `MIME-Version: 1.0`,
+        `Content-Type: text/html; charset=utf-8`,
+        `Content-Transfer-Encoding: 8bit`,
+        '',
+        htmlBody
+      ];
+
+      const blob = new Blob([emlLines.join('\r\n')], {
+        type: 'message/rfc822;charset=utf-8'
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const cleanSubject = subject.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 30);
+      a.download = `Email_Outlook_${cleanSubject}.eml`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Falha ao gerar arquivo de e-mail para o Outlook:', err);
     }
   };
 
@@ -1481,6 +1525,10 @@ export const NotificationsView: React.FC<NotificationsViewProps> = () => {
                     ))}
                   </div>
                 )}
+                <div className="text-[11px] text-slate-500 pt-0.5 flex items-center gap-1.5">
+                  <span className="inline-block w-1.5 h-1.5 rounded-full bg-cyan-500"></span>
+                  <span>O botão <strong>"Abrir E-mail Pronto no Outlook"</strong> abre o Outlook diretamente com os destinatários, cópia, assunto e formatação visual completa já prontos para envio.</span>
+                </div>
               </div>
 
               <div className="p-5 overflow-y-auto flex-1 bg-slate-100/70">
@@ -1488,28 +1536,40 @@ export const NotificationsView: React.FC<NotificationsViewProps> = () => {
               </div>
 
               <div className="p-4 bg-white border-t border-slate-200 flex flex-wrap items-center justify-between gap-3">
-                <button
-                  type="button"
-                  onClick={() => handleCopyEmailHtml(liveBuilt.html)}
-                  className={`inline-flex items-center px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer ${
-                    copiedHtml
-                      ? 'bg-emerald-600 text-white'
-                      : 'bg-cyan-600 hover:bg-cyan-700 text-white'
-                  }`}
-                  title="Copia o e-mail completo com formatação, tabelas e cores para colar diretamente no Outlook (Ctrl+V)"
-                >
-                  {copiedHtml ? (
-                    <>
-                      <Check className="w-4 h-4 mr-1.5" />
-                      Copiado com sucesso! Cole no Outlook (Ctrl+V)
-                    </>
-                  ) : (
-                    <>
-                      <Copy className="w-4 h-4 mr-1.5" />
-                      Copiar Conteúdo Formatado para o Outlook
-                    </>
-                  )}
-                </button>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleDownloadOutlookEml(liveBuilt.subject, liveTo, liveCc, liveBuilt.html)}
+                    className="inline-flex items-center px-4 py-2 rounded-xl text-xs font-bold text-white bg-[#00386e] hover:bg-[#002b55] shadow-xs cursor-pointer transition-all"
+                    title="Abre o Outlook diretamente com Para, Cc, Assunto e todo o layout visual montado pronto para enviar!"
+                  >
+                    <Mail className="w-4 h-4 mr-1.5 text-cyan-300" />
+                    Abrir E-mail Pronto no Outlook (.eml)
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleCopyEmailHtml(liveBuilt.html)}
+                    className={`inline-flex items-center px-3.5 py-2 rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer ${
+                      copiedHtml
+                        ? 'bg-emerald-600 text-white'
+                        : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200'
+                    }`}
+                    title="Copia o e-mail completo com formatação, tabelas e cores para colar diretamente no Outlook (Ctrl+V)"
+                  >
+                    {copiedHtml ? (
+                      <>
+                        <Check className="w-4 h-4 mr-1.5" />
+                        Copiado! Cole no Outlook (Ctrl+V)
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="w-4 h-4 mr-1.5 text-slate-500" />
+                        Copiar Conteúdo (Ctrl+V)
+                      </>
+                    )}
+                  </button>
+                </div>
 
                 <div className="flex items-center space-x-2.5">
                   <button
