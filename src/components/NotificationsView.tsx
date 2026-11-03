@@ -16,7 +16,9 @@ import {
   X,
   RefreshCw,
   ShieldCheck,
-  Server
+  Server,
+  Copy,
+  Check
 } from 'lucide-react';
 import { useDCN } from '../context/DCNContext';
 import { api } from '../services/api';
@@ -86,6 +88,36 @@ export const NotificationsView: React.FC<NotificationsViewProps> = () => {
     html: string;
     ruleType?: NotificationRuleType;
   } | null>(null);
+
+  const [copiedHtml, setCopiedHtml] = useState(false);
+
+  const handleCopyEmailHtml = async (html: string) => {
+    try {
+      if (navigator.clipboard && window.ClipboardItem) {
+        const textBlob = new Blob([html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()], { type: 'text/plain' });
+        const htmlBlob = new Blob([html], { type: 'text/html' });
+        await navigator.clipboard.write([
+          new ClipboardItem({
+            'text/html': htmlBlob,
+            'text/plain': textBlob
+          })
+        ]);
+      } else {
+        const listener = (e: ClipboardEvent) => {
+          e.clipboardData?.setData('text/html', html);
+          e.clipboardData?.setData('text/plain', html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim());
+          e.preventDefault();
+        };
+        document.addEventListener('copy', listener);
+        document.execCommand('copy');
+        document.removeEventListener('copy', listener);
+      }
+      setCopiedHtml(true);
+      setTimeout(() => setCopiedHtml(false), 3000);
+    } catch (err) {
+      console.error('Falha ao copiar:', err);
+    }
+  };
 
   const nextWeeklyExecution = useMemo(() => getNextWeeklyExecutionInfo(settings), [settings]);
 
@@ -1455,28 +1487,53 @@ export const NotificationsView: React.FC<NotificationsViewProps> = () => {
                 <div dangerouslySetInnerHTML={{ __html: liveBuilt.html }} />
               </div>
 
-              <div className="p-4 bg-white border-t border-slate-200 flex items-center justify-end space-x-2.5">
+              <div className="p-4 bg-white border-t border-slate-200 flex flex-wrap items-center justify-between gap-3">
                 <button
                   type="button"
-                  onClick={() => setPreviewModal(null)}
-                  className="px-4 py-1.5 rounded-xl text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200"
+                  onClick={() => handleCopyEmailHtml(liveBuilt.html)}
+                  className={`inline-flex items-center px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer ${
+                    copiedHtml
+                      ? 'bg-emerald-600 text-white'
+                      : 'bg-cyan-600 hover:bg-cyan-700 text-white'
+                  }`}
+                  title="Copia o e-mail completo com formatação, tabelas e cores para colar diretamente no Outlook (Ctrl+V)"
                 >
-                  Fechar
+                  {copiedHtml ? (
+                    <>
+                      <Check className="w-4 h-4 mr-1.5" />
+                      Copiado com sucesso! Cole no Outlook (Ctrl+V)
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-4 h-4 mr-1.5" />
+                      Copiar Conteúdo Formatado para o Outlook
+                    </>
+                  )}
                 </button>
-                {previewModal.ruleType && (
+
+                <div className="flex items-center space-x-2.5">
                   <button
                     type="button"
-                    onClick={() => {
-                      const rule = previewModal.ruleType!;
-                      setPreviewModal(null);
-                      handleTriggerRule(rule);
-                    }}
-                    className="inline-flex items-center px-4 py-1.5 rounded-xl text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 cursor-pointer"
+                    onClick={() => setPreviewModal(null)}
+                    className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 cursor-pointer"
                   >
-                    <Send className="w-3.5 h-3.5 mr-1.5" />
-                    Confirmar e Disparar E-mail Agora
+                    Fechar
                   </button>
-                )}
+                  {previewModal.ruleType && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const rule = previewModal.ruleType!;
+                        setPreviewModal(null);
+                        handleTriggerRule(rule);
+                      }}
+                      className="inline-flex items-center px-4 py-2 rounded-xl text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 cursor-pointer"
+                    >
+                      <Send className="w-3.5 h-3.5 mr-1.5" />
+                      Confirmar e Disparar E-mail Agora
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
           </div>
