@@ -3,10 +3,6 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import path from 'path';
 import fs from 'fs';
-import { fileURLToPath } from 'url';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 import multer from 'multer';
 import { prisma } from './db';
 import {
@@ -1580,11 +1576,11 @@ app.post('/api/dcns/:id/attachments', upload.single('file'), async (req: Request
 });
 
 function getUploadCandidateDirs(): string[] {
+  const currentDir = typeof __dirname !== 'undefined' ? __dirname : process.cwd();
   const candidates = [
     path.join(process.cwd(), 'uploads'),
-    path.join(__dirname, '..', 'uploads'),
-    path.join(__dirname, 'uploads'),
-    'C:\\Users\\jmiranda\\Downloads\\DCN-Management-System-main\\DCN-Management-System-main\\uploads'
+    path.join(currentDir, '..', 'uploads'),
+    path.join(currentDir, 'uploads')
   ];
   return Array.from(new Set(candidates.filter(dir => fs.existsSync(dir))));
 }
@@ -2355,6 +2351,9 @@ if (fs.existsSync(distPath)) {
 }
 
 async function syncDatabaseOnStartup() {
+  if (!isDatabaseConfigured) {
+    return;
+  }
   try {
     // 0. Garantir que as colunas revision e productFamily existam na tabela dcns
     try {
