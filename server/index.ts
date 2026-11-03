@@ -2124,6 +2124,7 @@ app.post('/api/notifications/trigger', async (req: Request, res: Response) => {
   }
 
   let smtpSent = false;
+  let smtpDetail = '';
   if (notificationSettingsMemory.smtpEnabled && ((entry.recipients && entry.recipients.length > 0) || (entry.ccRecipients && entry.ccRecipients.length > 0))) {
     const result = await sendSmtpEmail({
       settings: notificationSettingsMemory,
@@ -2133,17 +2134,23 @@ app.post('/api/notifications/trigger', async (req: Request, res: Response) => {
       html: entry.htmlPreview
     });
     smtpSent = result.sent;
+    smtpDetail = result.detail;
     console.log(`[SMTP Poste.io] ${result.detail}`);
+  } else if (!notificationSettingsMemory.smtpEnabled) {
+    smtpDetail = 'O envio externo via SMTP está desativado nas configurações.';
+  } else {
+    smtpDetail = 'Nenhum destinatário informado para recebimento.';
   }
 
   const savedEntry: NotificationLogEntry = {
     ...entry,
-    status: smtpSent ? 'ENVIADO_SMTP' : entry.status
+    status: smtpSent ? 'ENVIADO_SMTP' : 'REGISTRADO_SISTEMA',
+    message: smtpDetail
   };
   notificationLogsMemory = [savedEntry, ...notificationLogsMemory.filter(l => l.dcnCount && l.dcnCount > 0)].slice(0, 100);
   saveLocalNotificationLogs(notificationLogsMemory);
   console.log(
-    `[Notification Service] Disparo (${savedEntry.triggerMode}): "${savedEntry.subject}" -> [${savedEntry.recipients.join(', ')}] (${savedEntry.dcnCount} DCNs)`
+    `[Notification Service] Disparo (${savedEntry.triggerMode}): "${savedEntry.subject}" -> [${savedEntry.recipients.join(', ')}] (${savedEntry.dcnCount} DCNs) - Status: ${savedEntry.status} (${smtpDetail})`
   );
   res.json(savedEntry);
 });

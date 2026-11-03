@@ -256,10 +256,17 @@ export const NotificationsView: React.FC<NotificationsViewProps> = () => {
       });
       if (!entry.skipped && entry.dcnCount > 0) {
         setLogs(prev => [entry, ...prev.filter(l => l.id !== entry.id && l.dcnCount > 0)]);
-        setFeedback({
-          type: 'success',
-          message: `Notificação "${RULE_TYPE_LABELS[ruleType].title}" disparada para ${entry.recipients.length} destinatário(s) com ${entry.dcnCount} DCN(s)!`
-        });
+        if (entry.status === 'ENVIADO_SMTP') {
+          setFeedback({
+            type: 'success',
+            message: `✅ E-mail enviado com sucesso via SMTP para ${entry.recipients.length} destinatário(s) com ${entry.dcnCount} DCN(s)!`
+          });
+        } else {
+          setFeedback({
+            type: 'warning',
+            message: `⚠️ Notificação registrada no sistema (${entry.dcnCount} DCNs), porém o e-mail NÃO foi entregue pelo servidor SMTP: ${entry.message || 'Verifique as configurações, host e senha SMTP no botão "Configurar Servidor SMTP".'}`
+          });
+        }
       } else {
         setFeedback({
           type: 'info',
@@ -299,6 +306,8 @@ export const NotificationsView: React.FC<NotificationsViewProps> = () => {
       }
 
       const newEntries: NotificationLogEntry[] = [];
+      let sentCount = 0;
+      let failedCount = 0;
       for (const r of eligibleRules) {
         const entry = await api.triggerNotification({
           ruleType: r,
@@ -310,13 +319,25 @@ export const NotificationsView: React.FC<NotificationsViewProps> = () => {
         });
         if (!entry.skipped && entry.dcnCount > 0) {
           newEntries.push(entry);
+          if (entry.status === 'ENVIADO_SMTP') {
+            sentCount++;
+          } else {
+            failedCount++;
+          }
         }
       }
       setLogs(prev => [...newEntries, ...prev.filter(l => l.dcnCount > 0)].slice(0, 100));
-      setFeedback({
-        type: 'success',
-        message: `${newEntries.length} rotina(s) com pendências executada(s) e enviada(s)!`
-      });
+      if (failedCount === 0) {
+        setFeedback({
+          type: 'success',
+          message: `✅ ${newEntries.length} rotina(s) executada(s) e entregue(s) por e-mail via SMTP com sucesso!`
+        });
+      } else {
+        setFeedback({
+          type: 'warning',
+          message: `⚠️ ${newEntries.length} rotina(s) executada(s): ${sentCount} entregue(s) por e-mail e ${failedCount} registrada(s) apenas no sistema (falha no envio SMTP). Verifique as configurações de SMTP.`
+        });
+      }
     } finally {
       setIsTriggering(null);
     }
@@ -1217,10 +1238,29 @@ export const NotificationsView: React.FC<NotificationsViewProps> = () => {
                 {displayLogs.map(log => (
                   <tr key={log.id} className="hover:bg-slate-50/80">
                     <td className="py-3 px-4 font-mono text-[11px] text-slate-600 whitespace-nowrap">
-                      {log.timestamp}
-                      <span className="ml-1.5 px-1.5 py-0.2 rounded text-[9px] font-bold bg-slate-100 text-slate-600">
-                        {log.triggerMode}
-                      </span>
+                      <div className="font-semibold text-slate-800">{log.timestamp}</div>
+                      <div className="flex items-center gap-1.5 mt-1">
+                        <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-slate-100 text-slate-600 border border-slate-200">
+                          {log.triggerMode}
+                        </span>
+                        {log.status === 'ENVIADO_SMTP' ? (
+                          <span
+                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-300"
+                            title={log.message || 'E-mail enviado via servidor SMTP com sucesso'}
+                          >
+                            <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0" />
+                            Enviado por E-mail
+                          </span>
+                        ) : (
+                          <span
+                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-50 text-amber-700 border border-amber-300 cursor-help"
+                            title={log.message || 'Registrado apenas no sistema. O e-mail não foi entregue pelo SMTP (verifique as credenciais e senha).'}
+                          >
+                            <AlertTriangle className="w-3 h-3 text-amber-600 shrink-0" />
+                            Apenas Sistema (Não Enviado)
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="py-3 px-4 font-bold text-slate-900">
                       {log.title}
