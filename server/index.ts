@@ -1921,7 +1921,17 @@ app.get('/api/notifications/settings', async (_req: Request, res: Response) => {
   } catch (err: any) {
     console.warn('[Settings] Falha ao consultar DB:', err.message);
   }
-  res.json(notificationSettingsMemory);
+
+  // Preencher com variáveis de ambiente do CapRover se existirem
+  const currentSettings = {
+    ...notificationSettingsMemory,
+    smtpHost: process.env.SMTP_HOST || notificationSettingsMemory.smtpHost,
+    smtpPort: process.env.SMTP_PORT ? Number(process.env.SMTP_PORT) : notificationSettingsMemory.smtpPort,
+    smtpUser: process.env.SMTP_USER || notificationSettingsMemory.smtpUser,
+    smtpFrom: process.env.SMTP_FROM || (process.env.SMTP_USER ? `Gestão de DCNs CTDI <${process.env.SMTP_USER}>` : notificationSettingsMemory.smtpFrom)
+  };
+
+  res.json(currentSettings);
 });
 
 app.put('/api/notifications/settings', async (req: Request, res: Response) => {
@@ -2352,6 +2362,11 @@ app.post('/api/notifications/test-smtp', async (req: Request, res: Response) => 
     ...notificationSettingsMemory,
     ...(req.body?.settings || {})
   };
+  if (process.env.SMTP_HOST) settings.smtpHost = process.env.SMTP_HOST;
+  if (process.env.SMTP_PORT) settings.smtpPort = Number(process.env.SMTP_PORT);
+  if (process.env.SMTP_USER) settings.smtpUser = process.env.SMTP_USER;
+  if (process.env.SMTP_PASS) settings.smtpPass = process.env.SMTP_PASS;
+  if (process.env.SMTP_FROM) settings.smtpFrom = process.env.SMTP_FROM;
   const customRecipient = (req.body?.testRecipient || '').trim();
   if (customRecipient) {
     settings.fixedRecipients = [

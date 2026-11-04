@@ -28,8 +28,22 @@ export async function sendSmtpEmail(options: SendMailOptions): Promise<{ sent: b
   const port = Number(process.env.SMTP_PORT || settings.smtpPort || 587);
   const user = (process.env.SMTP_USER || settings.smtpUser || '').trim();
   const pass = process.env.SMTP_PASS || settings.smtpPass || '';
-  const fromHeader = (process.env.SMTP_FROM || settings.smtpFrom || user || 'dcn@ctdibrasil.com.br').trim();
-  const fromEnvelope = extractEmailAddress(fromHeader);
+
+  // Determinar o From Header e o From Envelope
+  let fromHeader = (process.env.SMTP_FROM || settings.smtpFrom || user || 'dcn@ctdibrasil.com.br').trim();
+  let fromEnvelope = extractEmailAddress(fromHeader);
+
+  // Se houver um usuário autenticado (ex: dcnmanagementsystem@ctdisystem.com.br no UOL Host smtps.uhserver.com),
+  // o remetente (MAIL FROM) DEVE coincidir com o domínio da conta autenticada para evitar recusa 553/550
+  if (user && extractEmailAddress(user).includes('@')) {
+    const userEmail = extractEmailAddress(user);
+    if (!fromEnvelope || fromEnvelope.split('@')[1] !== userEmail.split('@')[1]) {
+      const displayNameMatch = fromHeader.match(/^([^<]+)<[^>]+>$/);
+      const displayName = displayNameMatch ? displayNameMatch[1].trim() : 'Gestão de DCNs CTDI';
+      fromHeader = `${displayName} <${userEmail}>`;
+      fromEnvelope = userEmail;
+    }
+  }
 
   const toRecipients = to.map(r => extractEmailAddress(r)).filter(Boolean);
   const ccRecipients = cc.map(r => extractEmailAddress(r)).filter(Boolean);
@@ -258,9 +272,17 @@ export async function sendSmtpEmail(options: SendMailOptions): Promise<{ sent: b
 
     try {
       if (port === 465) {
-        socket = tls.connect({ host, port, rejectUnauthorized: false }, () => {
-          runSession();
-        });
+        socket = tls.connect(
+          {
+            host,
+            port,
+            servername: host,
+            rejectUnauthorized: false
+          },
+          () => {
+            runSession();
+          }
+        );
       } else {
         socket = net.createConnection({ host, port }, () => {
           runSession();
