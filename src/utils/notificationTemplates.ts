@@ -600,7 +600,7 @@ export function buildNotificationEmailHTML(
       accentColor = '#b45309';
       badgeLabel = `CTDI DO BRASIL • ALERTA PREVENTIVO DE PRAZO (≤ ${settings.slaThresholdDays} DIAS)`;
       introParagraph =
-        `Prezados Engenheiros e Coordenadores,<br/><br/>As DCNs listadas neste comunicado ainda não foram encerradas e possuem data limite de SLA vencendo nos próximos <strong>${settings.slaThresholdDays} dias</strong>. Verifique abaixo o detalhamento da razão pela qual cada DCN ainda não foi implementada ou encerrada para garantir o cumprimento do prazo.`;
+        `Prezados(as),<br/><br/>As DCNs listadas neste comunicado ainda não foram encerradas e possuem data limite de SLA vencendo nos próximos <strong>${settings.slaThresholdDays} dias</strong>. Verifique abaixo o detalhamento da razão pela qual cada DCN ainda não foi implementada ou encerrada para garantir o cumprimento do prazo.`;
       subject = `[Aviso Preventivo SLA] ${targetDCNs.length} DCN(s) Não Encerrada(s) vencem em até ${settings.slaThresholdDays} dias`;
       break;
 
