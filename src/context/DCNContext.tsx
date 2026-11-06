@@ -158,7 +158,7 @@ export const DCNProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     role: currentUser?.role === 'ADMIN' 
       ? 'Administrador do Sistema' 
       : (currentUser?.role === 'ENGINEER' ? 'Engenharia de Processos & Qualidade' : 'Operador de Produção'),
-    email: currentUser ? `${currentUser.login.toLowerCase()}@ctdi.com` : 'jonatas.miranda@ctdi.com'
+    email: (currentUser as any)?.email?.trim() || 'jmiranda@ctdi.com'
   }), [currentUser]);
 
   useEffect(() => {

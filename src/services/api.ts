@@ -171,7 +171,7 @@ export const api = {
         id: `user-${Date.now()}`,
         login: normalizedLogin,
         nome: payload.nome.trim(),
-        email: payload.email?.trim() || `${normalizedLogin.toLowerCase()}@ctdi.com`,
+        email: payload.email?.trim() || (normalizedLogin === 'JONATAS.MIRANDA' ? 'jmiranda@ctdi.com' : ''),
         role: payload.role,
         senha: payload.senha,
         createdAt: now,

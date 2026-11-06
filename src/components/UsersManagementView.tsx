@@ -130,7 +130,7 @@ export const UsersManagementView: React.FC = () => {
     setFormData({
       nome: user.nome,
       login: user.login,
-      email: user.email || `${user.login.toLowerCase()}@ctdi.com`,
+      email: user.email || (user.login.toUpperCase() === 'JONATAS.MIRANDA' ? 'jmiranda@ctdi.com' : ''),
       role: user.role,
       senha: '' // Em branco mantém a senha atual
     });
@@ -171,7 +171,7 @@ export const UsersManagementView: React.FC = () => {
         const updated = await api.updateUser(editingUser.id, {
           nome: trimmedNome,
           login: trimmedLogin,
-          email: formData.email.trim() || `${trimmedLogin.toLowerCase()}@ctdi.com`,
+          email: formData.email.trim() || (trimmedLogin === 'JONATAS.MIRANDA' ? 'jmiranda@ctdi.com' : ''),
           role: formData.role,
           ...(trimmedSenha.trim().length > 0 ? { senha: trimmedSenha } : {})
         });
@@ -184,7 +184,7 @@ export const UsersManagementView: React.FC = () => {
         const created = await api.createUser({
           nome: trimmedNome,
           login: trimmedLogin,
-          email: formData.email.trim() || `${trimmedLogin.toLowerCase()}@ctdi.com`,
+          email: formData.email.trim() || (trimmedLogin === 'JONATAS.MIRANDA' ? 'jmiranda@ctdi.com' : ''),
           role: formData.role,
           senha: trimmedSenha
         });
@@ -435,7 +435,7 @@ export const UsersManagementView: React.FC = () => {
                               )}
                             </div>
                             <div className="text-[11px] text-slate-500">
-                              {user.email || `${user.login.toLowerCase()}@ctdi.com`}
+                              {user.email || (user.login.toUpperCase() === 'JONATAS.MIRANDA' ? 'jmiranda@ctdi.com' : '-')}
                             </div>
                           </div>
                         </div>
@@ -572,7 +572,7 @@ export const UsersManagementView: React.FC = () => {
                   type="email"
                   value={formData.email}
                   onChange={e => setFormData(prev => ({ ...prev, email: e.target.value }))}
-                  placeholder={formData.login ? `Ex: ${formData.login.toLowerCase()}@ctdi.com` : 'Ex: joao.silva@ctdi.com'}
+                  placeholder={formData.login?.toUpperCase() === 'JONATAS.MIRANDA' ? 'Ex: jmiranda@ctdi.com' : 'Ex: usuario@ctdi.com'}
                   className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-[#00386e]/20 focus:border-[#00386e] font-medium text-slate-900"
                 />
               </div>

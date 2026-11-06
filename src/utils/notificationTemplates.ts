@@ -504,7 +504,13 @@ export function resolveRecipientsForDCNs(
     if (clean) emailSet.add(clean);
   });
 
-  // 2. Vincula os responsáveis das DCNs aos usuários cadastrados no sistema
+  // Se o usuário configurou Destinatários Principais no card, essa lista é soberana e definitiva.
+  // Evita injetar e-mails sintéticos ou não cadastrados.
+  if (emailSet.size > 0) {
+    return Array.from(emailSet);
+  }
+
+  // 2. Fallback: apenas se NÃO houver destinatários principais configurados, busca responsáveis das DCNs
   const responsibles = new Set<string>(
     targetDCNs.map(d => d.responsible.trim().toLowerCase())
   );
@@ -516,7 +522,7 @@ export function resolveRecipientsForDCNs(
     const matchesName = responsibles.has(u.nome.trim().toLowerCase());
     const matchesLogin = responsibles.has(u.login.trim().toLowerCase());
     if (matchesName || matchesLogin) {
-      if (u.email && u.email.trim()) {
+      if (u.email && u.email.trim() && !u.email.includes(u.login.toLowerCase())) {
         const cleanUserEmail = u.email.trim().toLowerCase();
         if (!excludedSet.has(cleanUserEmail)) {
           emailSet.add(cleanUserEmail);
@@ -1138,23 +1144,28 @@ export function resolveClosureRecipients(
   const toSet = new Set<string>();
   const ccSet = new Set<string>();
 
-  // 1. Destinatários Principais cadastrados no card de Notificações
+  // 1. Destinatários Principais cadastrados no card de Notificações (Lista Soberana)
   (settings.directRecipients || []).forEach(email => {
     const clean = email.trim().toLowerCase();
     if (clean) toSet.add(clean);
   });
 
-  // 2. Engenheiro Responsável pela DCN
-  const resp = (dcn.responsible || '').trim().toLowerCase();
-  const matchedUser = users.find(
-    u => u.nome.trim().toLowerCase() === resp || u.login.trim().toLowerCase() === resp
-  );
-  if (matchedUser && matchedUser.email) {
-    toSet.add(matchedUser.email.trim().toLowerCase());
-  } else if (matchedUser && matchedUser.login) {
-    toSet.add(`${matchedUser.login.toLowerCase()}@ctdi.com`);
-  } else if (resp.includes('@')) {
-    toSet.add(resp);
+  // 2. Fallback: apenas se NÃO houver destinatários principais configurados, busca o responsável da DCN
+  if (toSet.size === 0) {
+    const resp = (dcn.responsible || '').trim().toLowerCase();
+    const matchedUser = users.find(
+      u => u.nome.trim().toLowerCase() === resp || u.login.trim().toLowerCase() === resp
+    );
+    if (
+      matchedUser &&
+      matchedUser.email &&
+      matchedUser.email.trim() &&
+      !matchedUser.email.toLowerCase().includes(matchedUser.login.toLowerCase())
+    ) {
+      toSet.add(matchedUser.email.trim().toLowerCase());
+    } else if (resp.includes('@')) {
+      toSet.add(resp);
+    }
   }
 
   // 3. Destinatários em Cópia (Cc) cadastrados no card de Notificações
