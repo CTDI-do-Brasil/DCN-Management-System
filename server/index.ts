@@ -1135,11 +1135,8 @@ app.put('/api/dcns/:id', async (req: Request, res: Response) => {
         });
       });
 
-      if (isClosing) {
-        sendDCNClosureNotification(currentDCN.id, user || currentDCN.closedBy || 'Engenharia CTDI', updated).catch(err => {
-          console.warn('[DCN Closure] Falha ao enviar notificação de encerramento:', err);
-        });
-      }
+      // O envio oficial do e-mail de encerramento é centralizado na rota POST /api/dcns/:id/notify-closure
+      // para garantir a inclusão do arquivo PDF de treinamento e evitar envio em duplicidade.
 
       return res.json(updated);
     } catch (error: any) {
@@ -1200,11 +1197,8 @@ app.put('/api/dcns/:id', async (req: Request, res: Response) => {
 
   saveLocalDCNs(localDcns);
 
-  if (isClosing) {
-    sendDCNClosureNotification(id, user || 'Engenharia CTDI', savedDCN).catch(err => {
-      console.warn('[DCN Closure Fallback] Falha ao enviar notificação de encerramento:', err);
-    });
-  }
+  // O envio oficial do e-mail de encerramento é centralizado na rota POST /api/dcns/:id/notify-closure
+  // para garantir a inclusão do arquivo PDF de treinamento e evitar envio em duplicidade.
 
   return res.json(savedDCN);
 });
@@ -2293,7 +2287,7 @@ app.post('/api/dcns/:id/notify-closure', async (req: Request, res: Response) => 
     user,
     dcn,
     attachmentBase64 ? { base64: attachmentBase64, filename: attachmentName, contentType: attachmentType } : undefined,
-    force !== false
+    force === true
   );
   res.json(result);
 });
