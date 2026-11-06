@@ -33,7 +33,9 @@ import {
   Eye,
   Loader2,
   Edit3,
-  Mail
+  Mail,
+  ChevronDown,
+  Send
 } from 'lucide-react';
 import { useDCN } from '../context/DCNContext';
 import { useAuth } from '../context/AuthContext';
@@ -42,6 +44,12 @@ import { STATUS_CONFIG, PRIORITY_CONFIG, MATERIAL_STATUS_CONFIG, formatDate, isO
 import { api } from '../services/api';
 import { NewDCNModal } from './NewDCNModal';
 import { generateTrainingEvidencePDF } from '../utils/pdfGenerator';
+import { 
+  buildDCNClosureEmailHTML, 
+  resolveClosureRecipients, 
+  DEFAULT_NOTIFICATION_SETTINGS 
+} from '../utils/notificationTemplates';
+import { downloadOutlookEml } from '../utils/outlookEml';
 
 interface DCNDetailModalProps {
   dcn: DCN;
@@ -119,6 +127,13 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
   };
 
   const [isSendingClosureEmail, setIsSendingClosureEmail] = useState(false);
+  const [showClosureMenu, setShowClosureMenu] = useState(false);
+  const [closureFeedback, setClosureFeedback] = useState<{
+    show: boolean;
+    to: string[];
+    cc: string[];
+    filename?: string;
+  } | null>(null);
   const [isAdvancing, setIsAdvancing] = useState(false);
 
   const handleAdvanceStatus = async () => {
@@ -130,38 +145,11 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
     }
   };
 
-  const executeSendWithAttachment = async (base64: string, filename: string) => {
-    setIsSendingClosureEmail(true);
+  /**
+   * Obtém o anexo de evidência de treinamento da DCN (arquivo real carregado ou gerado em PDF)
+   */
+  const getClosureAttachment = async (): Promise<{ filename: string; base64: string } | null> => {
     try {
-      const result = await api.notifyDCNClosure(
-        dcn.id,
-        currentEngineer.name,
-        dcn,
-        {
-          base64,
-          filename,
-          contentType: filename.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'application/octet-stream'
-        }
-      );
-
-      if (result.smtpSent) {
-        alert(`✅ E-mail de encerramento enviado com sucesso para os destinatários com o anexo "${filename}"!\n\n${result.detail || ''}`);
-      } else {
-        alert(`ℹ️ Notificação processada: ${result.detail || result.error || 'Registrado no sistema'}`);
-      }
-    } catch (err: any) {
-      alert(`❌ Erro ao enviar e-mail de encerramento: ${err.message}`);
-    } finally {
-      setIsSendingClosureEmail(false);
-    }
-  };
-
-  const handleSendClosureEmail = async () => {
-    setIsSendingClosureEmail(true);
-    try {
-      console.log('[handleSendClosureEmail] Iniciando processo de envio com anexo para DCN:', dcn.dcnNumber);
-
-      // 1. Localizar o anexo de evidência de treinamento já vinculado à DCN
       const trainingAtt = (dcn.attachments || []).find(
         a => a.category === 'REGISTRO_TREINAMENTO' ||
              (a.name && (a.name.toLowerCase().includes('treinamento') || a.name.toLowerCase().includes('registro')))
@@ -169,22 +157,19 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
         a => a.type === 'PDF' || (a.name && a.name.toLowerCase().endsWith('.pdf'))
       ) || (dcn.attachments && dcn.attachments.length > 0 ? dcn.attachments[0] : null);
 
-      let base64 = trainingAtt?.base64;
       let filename = trainingAtt?.name || 'Registro_Treinamento.pdf';
       if (!filename.toLowerCase().endsWith('.pdf')) {
         filename += '.pdf';
       }
 
-      // A) Se o anexo já possui os bytes em base64 em memória/estado, envia direto
+      let base64 = trainingAtt?.base64;
+
       if (base64 && base64.length > 50) {
-        console.log('[handleSendClosureEmail] Utilizando base64 já em memória do anexo:', filename);
-        return await executeSendWithAttachment(base64, filename);
+        return { filename, base64 };
       }
 
-      // B) Se possui URL válida no servidor/API, lê os bytes em background
       if (trainingAtt?.url) {
         try {
-          console.log('[handleSendClosureEmail] Tentando carregar binário da URL:', trainingAtt.url);
           const res = await fetch(trainingAtt.url);
           if (res.ok) {
             const blob = await res.blob();
@@ -196,45 +181,144 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
                 reader.readAsDataURL(blob);
               });
               if (base64 && base64.length > 50) {
-                if (trainingAtt) {
-                  trainingAtt.base64 = base64;
-                }
-                console.log('[handleSendClosureEmail] Binário recuperado da URL com sucesso.');
-                return await executeSendWithAttachment(base64, filename);
+                if (trainingAtt) trainingAtt.base64 = base64;
+                return { filename, base64 };
               }
             }
           }
         } catch (e) {
-          console.warn('[handleSendClosureEmail] URL indisponível para leitura de anexo:', e);
+          console.warn('[getClosureAttachment] URL indisponível para leitura de anexo:', e);
         }
       }
 
-      // C) Se os bytes não estão na memória do navegador, solicita ao backend que utilize o arquivo original gravado em disco (uploads/) ou MinIO
-      console.log('[handleSendClosureEmail] Solicitando ao backend que utilize o anexo original salvo em disco/storage...');
-      try {
-        const srvRes = await api.notifyDCNClosure(dcn.id, currentEngineer.name, dcn);
-        if (srvRes.success) {
-          if (srvRes.smtpSent) {
-            alert(`✅ E-mail de encerramento enviado com sucesso para os destinatários com o anexo "${filename}"!\n\n${srvRes.detail || ''}`);
-          } else {
-            alert(`ℹ️ Notificação processada: ${srvRes.detail || srvRes.error || 'Registrado no sistema'}`);
+      if (trainingAtt?.id) {
+        try {
+          const fileUrl = api.getAttachmentFileUrl(trainingAtt.id);
+          const res = await fetch(fileUrl);
+          if (res.ok) {
+            const blob = await res.blob();
+            if (blob.size > 0) {
+              base64 = await new Promise<string>((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result as string);
+                reader.onerror = reject;
+                reader.readAsDataURL(blob);
+              });
+              if (base64 && base64.length > 50) {
+                if (trainingAtt) trainingAtt.base64 = base64;
+                return { filename, base64 };
+              }
+            }
           }
-          return;
+        } catch (e) {
+          console.warn('[getClosureAttachment] Falha ao ler binário por id de anexo:', e);
         }
-      } catch (srvErr) {
-        console.warn('[handleSendClosureEmail] Tentativa direta no servidor falhou:', srvErr);
       }
 
-      // D) Último recurso: gera PDF de treinamento a partir dos dados da DCN apenas se não houver arquivo real
-      console.log('[handleSendClosureEmail] Gerando PDF oficial de treinamento a partir dos dados da DCN...');
+      // Fallback: sintetiza o PDF oficial de evidência de treinamento a partir dos dados da DCN
       const generatedPdfBase64 = generateTrainingEvidencePDF(dcn);
       if (trainingAtt) {
         trainingAtt.base64 = generatedPdfBase64;
       }
-      return await executeSendWithAttachment(generatedPdfBase64, filename);
+      return { filename, base64: generatedPdfBase64 };
+    } catch (err) {
+      console.warn('[getClosureAttachment] Erro geral ao obter anexo:', err);
+      const generatedPdfBase64 = generateTrainingEvidencePDF(dcn);
+      return { filename: 'Registro_Treinamento.pdf', base64: generatedPdfBase64 };
+    }
+  };
+
+  /**
+   * Abre diretamente o Microsoft Outlook (.eml) com corpo pré-preenchido,
+   * destinatários cadastrados (Para e Cc) e arquivo de evidência anexado.
+   */
+  const handleOpenOutlookClosureEmail = async () => {
+    setIsSendingClosureEmail(true);
+    try {
+      console.log('[handleOpenOutlookClosureEmail] Preparando e-mail Outlook para DCN:', dcn.dcnNumber);
+
+      // 1. Obter arquivo de evidência de treinamento em base64
+      const att = await getClosureAttachment();
+
+      // 2. Obter configurações de notificação (destinatários) e lista de usuários cadastrados
+      const [settings, usersList] = await Promise.all([
+        api.getNotificationSettings().catch(() => DEFAULT_NOTIFICATION_SETTINGS),
+        api.getUsers().catch(() => [])
+      ]);
+
+      // 3. Resolver destinatários Para (To) e Cópia (Cc) cadastrados
+      const { to, cc } = resolveClosureRecipients(dcn, usersList, settings);
+
+      const safeTo = to.length > 0
+        ? to
+        : ((settings.directRecipients && settings.directRecipients.length > 0)
+            ? settings.directRecipients
+            : ['jmiranda@ctdi.com']);
+      const safeCc = cc.length > 0 ? cc : (settings.fixedRecipients || []);
+
+      // 4. Montar o corpo corporativo HTML oficial de encerramento
+      const { subject, html } = buildDCNClosureEmailHTML(
+        dcn,
+        Boolean(att?.base64),
+        att?.filename
+      );
+
+      // 5. Gerar e baixar arquivo .eml com X-Unsent: 1 para o Microsoft Outlook
+      const cleanDcn = dcn.dcnNumber.replace(/[^a-zA-Z0-9_-]/g, '_');
+      downloadOutlookEml({
+        subject,
+        to: safeTo,
+        cc: safeCc,
+        htmlBody: html,
+        filename: `Email_Outlook_Encerramento_${cleanDcn}.eml`,
+        attachment: att && att.base64 ? {
+          filename: att.filename,
+          base64: att.base64,
+          contentType: 'application/pdf'
+        } : undefined
+      });
+
+      // Feedback visual para o usuário
+      setClosureFeedback({
+        show: true,
+        to: safeTo,
+        cc: safeCc,
+        filename: att?.filename
+      });
+
     } catch (err: any) {
-      console.error('[handleSendClosureEmail] Erro durante o processo:', err);
-      alert(`❌ Erro ao enviar e-mail de encerramento: ${err.message}`);
+      console.error('[handleOpenOutlookClosureEmail] Erro durante o processo:', err);
+      alert(`❌ Erro ao preparar e-mail para o Outlook: ${err.message}`);
+    } finally {
+      setIsSendingClosureEmail(false);
+    }
+  };
+
+  /**
+   * Opção alternativa: Envio via servidor SMTP em segundo plano
+   */
+  const handleSendViaSmtpServer = async () => {
+    setIsSendingClosureEmail(true);
+    try {
+      const att = await getClosureAttachment();
+      const result = await api.notifyDCNClosure(
+        dcn.id,
+        currentEngineer.name,
+        dcn,
+        att ? {
+          base64: att.base64,
+          filename: att.filename,
+          contentType: 'application/pdf'
+        } : undefined
+      );
+
+      if (result.smtpSent) {
+        alert(`✅ E-mail de encerramento enviado com sucesso via SMTP pelo servidor!\n\n${result.detail || ''}`);
+      } else {
+        alert(`ℹ️ Notificação processada: ${result.detail || result.error || 'Registrado no sistema'}`);
+      }
+    } catch (err: any) {
+      alert(`❌ Erro ao enviar e-mail via SMTP: ${err.message}`);
     } finally {
       setIsSendingClosureEmail(false);
     }
@@ -394,16 +478,54 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
             )}
 
             {dcn.status === 'ENCERRADA' && (
-              <button
-                type="button"
-                onClick={handleSendClosureEmail}
-                disabled={isSendingClosureEmail}
-                className="inline-flex items-center px-3 py-1.5 text-xs font-bold rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white border border-indigo-400 transition-colors shadow-xs cursor-pointer disabled:opacity-50"
-                title="Disparar e-mail de encerramento com o anexo de evidência aos destinatários"
-              >
-                <Mail className="w-3.5 h-3.5 mr-1.5 text-cyan-300" />
-                {isSendingClosureEmail ? 'Disparando...' : 'Reenviar E-mail com Evidência'}
-              </button>
+              <div className="relative inline-flex items-center">
+                <button
+                  type="button"
+                  onClick={handleOpenOutlookClosureEmail}
+                  disabled={isSendingClosureEmail}
+                  className="inline-flex items-center px-3 py-1.5 text-xs font-bold rounded-l-lg bg-indigo-600 hover:bg-indigo-500 text-white border border-indigo-400 transition-colors shadow-xs cursor-pointer disabled:opacity-50"
+                  title="Abrir no Outlook (.eml) com Para, CC, corpo formatado e evidência anexada"
+                >
+                  <Mail className="w-3.5 h-3.5 mr-1.5 text-cyan-300" />
+                  {isSendingClosureEmail ? 'Abrindo Outlook...' : 'Reenviar E-mail com Evidência'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowClosureMenu(prev => !prev)}
+                  disabled={isSendingClosureEmail}
+                  className="inline-flex items-center px-2 py-1.5 text-xs font-bold rounded-r-lg bg-indigo-700 hover:bg-indigo-600 text-white border-y border-r border-indigo-400 transition-colors cursor-pointer"
+                  title="Opções de envio"
+                >
+                  <ChevronDown className="w-3 h-3 text-cyan-200" />
+                </button>
+
+                {showClosureMenu && (
+                  <div className="absolute right-0 top-full mt-1 w-64 bg-white rounded-xl shadow-xl border border-slate-200 py-1.5 z-50">
+                    <button
+                      type="button"
+                      onClick={() => { setShowClosureMenu(false); handleOpenOutlookClosureEmail(); }}
+                      className="w-full text-left px-3 py-2 text-xs text-slate-700 hover:bg-slate-50 flex items-center space-x-2"
+                    >
+                      <Mail className="w-4 h-4 text-indigo-600 shrink-0" />
+                      <div>
+                        <div className="font-bold text-slate-900">Abrir no Outlook (.eml)</div>
+                        <div className="text-[10px] text-slate-500">Com Para, CC, corpo e evidência</div>
+                      </div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setShowClosureMenu(false); handleSendViaSmtpServer(); }}
+                      className="w-full text-left px-3 py-2 text-xs text-slate-700 hover:bg-slate-50 flex items-center space-x-2 border-t border-slate-100"
+                    >
+                      <Send className="w-4 h-4 text-emerald-600 shrink-0" />
+                      <div>
+                        <div className="font-bold text-slate-900">Disparar via Servidor SMTP</div>
+                        <div className="text-[10px] text-slate-500">Envia direto pelo backend</div>
+                      </div>
+                    </button>
+                  </div>
+                )}
+              </div>
             )}
 
             {/* Ação Crítica RBAC: Exclusão restrita estritamente a ADMIN */}
@@ -604,13 +726,13 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
                 </span>
                 <button
                   type="button"
-                  onClick={handleSendClosureEmail}
+                  onClick={handleOpenOutlookClosureEmail}
                   disabled={isSendingClosureEmail}
                   className="inline-flex items-center px-3 py-1 rounded-md text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 shadow-sm cursor-pointer transition-colors disabled:opacity-50"
-                  title="Enviar ou reenviar e-mail formal de encerramento com o anexo de treinamento aos destinatários"
+                  title="Abrir no Outlook (.eml) com Para, CC, corpo formatado e evidência anexada"
                 >
                   <Mail className="w-3.5 h-3.5 mr-1.5" />
-                  {isSendingClosureEmail ? 'Disparando...' : 'Reenviar E-mail com Evidência'}
+                  {isSendingClosureEmail ? 'Abrindo Outlook...' : 'Reenviar E-mail com Evidência'}
                 </button>
               </div>
             )}
@@ -755,26 +877,62 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
 
               {/* Informações de Encerramento (quando aplicável) */}
               {dcn.status === 'ENCERRADA' && (
-                <div className="bg-emerald-50 p-4 rounded-xl border border-emerald-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
-                  <div>
-                    <div className="flex items-center space-x-2 text-emerald-900 font-bold text-sm">
-                      <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                      <span>DCN Encerrada em {formatDate(dcn.closedAt)} por {dcn.closedBy}</span>
+                <div className="bg-emerald-50 p-4 rounded-xl border border-emerald-200 shadow-xs space-y-3">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div>
+                      <div className="flex items-center space-x-2 text-emerald-900 font-bold text-sm">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                        <span>DCN Encerrada em {formatDate(dcn.closedAt)} por {dcn.closedBy}</span>
+                      </div>
+                      <p className="text-xs text-emerald-800 mt-1">
+                        {dcn.closureNotes || 'Documentação arquivada, treinamentos concluídos e lote piloto homologado sem desvios.'}
+                      </p>
                     </div>
-                    <p className="text-xs text-emerald-800 mt-1">
-                      {dcn.closureNotes || 'Documentação arquivada, treinamentos concluídos e lote piloto homologado sem desvios.'}
-                    </p>
+                    <button
+                      type="button"
+                      onClick={handleOpenOutlookClosureEmail}
+                      disabled={isSendingClosureEmail}
+                      className="inline-flex items-center px-4 py-2 text-xs font-bold rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm cursor-pointer transition-colors shrink-0 disabled:opacity-50"
+                      title="Abrir no Outlook (.eml) com Para, CC, corpo formatado e evidência anexada"
+                    >
+                      <Mail className="w-4 h-4 mr-1.5" />
+                      {isSendingClosureEmail ? 'Abrindo Outlook...' : 'Reenviar E-mail com Evidência'}
+                    </button>
                   </div>
-                  <button
-                    type="button"
-                    onClick={handleSendClosureEmail}
-                    disabled={isSendingClosureEmail}
-                    className="inline-flex items-center px-4 py-2 text-xs font-bold rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm cursor-pointer transition-colors shrink-0 disabled:opacity-50"
-                    title="Disparar ou reenviar o e-mail formal de conclusão com o anexo de evidência de treinamento"
-                  >
-                    <Mail className="w-4 h-4 mr-1.5" />
-                    {isSendingClosureEmail ? 'Disparando...' : 'Reenviar E-mail com Evidência'}
-                  </button>
+
+                  {closureFeedback?.show && (
+                    <div className="p-3 bg-white border border-emerald-300 rounded-lg text-xs text-slate-800 flex items-start justify-between shadow-xs">
+                      <div className="space-y-1">
+                        <div className="font-bold flex items-center text-emerald-800 text-xs">
+                          <CheckCircle2 className="w-4 h-4 mr-1.5 text-emerald-600 shrink-0" />
+                          E-mail corporativo pronto gerado para o Microsoft Outlook (.eml)!
+                        </div>
+                        <div className="text-[11px] text-slate-700">
+                          <span className="font-semibold text-slate-900">Para:</span> {closureFeedback.to.join(', ')}
+                        </div>
+                        {closureFeedback.cc && closureFeedback.cc.length > 0 && (
+                          <div className="text-[11px] text-slate-700">
+                            <span className="font-semibold text-slate-900">Cc:</span> {closureFeedback.cc.join(', ')}
+                          </div>
+                        )}
+                        {closureFeedback.filename && (
+                          <div className="text-[11px] text-slate-700">
+                            <span className="font-semibold text-slate-900">Evidência Anexa:</span> {closureFeedback.filename}
+                          </div>
+                        )}
+                        <p className="text-[11px] text-indigo-700 pt-1 font-medium">
+                          O arquivo <code>.eml</code> foi baixado. Ao abri-lo, sua janela de envio do Outlook será exibida com todos os campos preenchidos pronta para revisão e envio oficial.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setClosureFeedback(null)}
+                        className="text-slate-400 hover:text-slate-700 p-1 cursor-pointer shrink-0"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -1369,13 +1527,13 @@ export const DCNDetailModal: React.FC<DCNDetailModalProps> = ({ dcn, onClose, on
                   {dcn.status === 'ENCERRADA' && (
                     <button
                       type="button"
-                      onClick={handleSendClosureEmail}
+                      onClick={handleOpenOutlookClosureEmail}
                       disabled={isSendingClosureEmail}
                       className="inline-flex items-center px-3 py-1.5 text-xs font-bold rounded-md text-white bg-emerald-600 hover:bg-emerald-700 shadow-xs cursor-pointer disabled:opacity-50"
-                      title="Disparar ou reenviar o e-mail formal de conclusão com o anexo de evidência de treinamento"
+                      title="Abrir no Outlook (.eml) com Para, CC, corpo formatado e evidência anexada"
                     >
                       <Mail className="w-3.5 h-3.5 mr-1" />
-                      {isSendingClosureEmail ? 'Disparando...' : 'Reenviar E-mail com Evidência'}
+                      {isSendingClosureEmail ? 'Abrindo Outlook...' : 'Reenviar E-mail com Evidência'}
                     </button>
                   )}
                   <button

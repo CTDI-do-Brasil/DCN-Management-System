@@ -42,6 +42,7 @@ import {
   getHolidayInfo,
   isBusinessDay
 } from '../utils/notificationTemplates';
+import { downloadOutlookEml } from '../utils/outlookEml';
 
 interface NotificationsViewProps {
   onSelectDCN?: (dcnId: string) => void;
@@ -128,36 +129,14 @@ export const NotificationsView: React.FC<NotificationsViewProps> = () => {
     htmlBody: string
   ) => {
     try {
-      // Codificação RFC 2047 Base64 para garantir acentos perfeitos no assunto no Outlook
-      const utf8Bytes = new TextEncoder().encode(subject);
-      let binary = '';
-      utf8Bytes.forEach(b => (binary += String.fromCharCode(b)));
-      const encodedSubject = `=?UTF-8?B?${btoa(binary)}?=`;
-
-      const emlLines: string[] = [
-        `To: ${to.join(', ')}`,
-        ...(cc && cc.length > 0 ? [`Cc: ${cc.join(', ')}`] : []),
-        `Subject: ${encodedSubject}`,
-        `X-Unsent: 1`,
-        `MIME-Version: 1.0`,
-        `Content-Type: text/html; charset=utf-8`,
-        `Content-Transfer-Encoding: 8bit`,
-        '',
-        htmlBody
-      ];
-
-      const blob = new Blob([emlLines.join('\r\n')], {
-        type: 'message/rfc822;charset=utf-8'
-      });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
       const cleanSubject = subject.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 30);
-      a.download = `Email_Outlook_${cleanSubject}.eml`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      downloadOutlookEml({
+        subject,
+        to,
+        cc,
+        htmlBody,
+        filename: `Email_Outlook_${cleanSubject}.eml`
+      });
     } catch (err) {
       console.error('Falha ao gerar arquivo de e-mail para o Outlook:', err);
     }
